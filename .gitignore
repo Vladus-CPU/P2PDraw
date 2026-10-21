@@ -1,0 +1,14 @@
+*.md
+docs/
+documentation/
+reports/
+coursework/
+**/bin/
+**/obj/
+.vs/
+.idea/
+TestResults/
+*.user
+*.suo
+*.sln.docstates
+*.tmp
