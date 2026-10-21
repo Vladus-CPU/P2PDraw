@@ -1,9 +1,11 @@
+using P2PDraw.Core.Operations;
+using P2PDraw.Core.Sync;
+using P2PDraw.Networking.Protocol;
 using System.Collections.Immutable;
 using System.Net;
 using System.Net.Sockets;
-using P2PDraw.Core;
 
-namespace P2PDraw.Networking;
+namespace P2PDraw.Networking.Transport;
 
 public sealed class TcpPeer : IAsyncDisposable
 {

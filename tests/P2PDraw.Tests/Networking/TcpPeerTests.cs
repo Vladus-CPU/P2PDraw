@@ -1,11 +1,13 @@
+using P2PDraw.Core.Operations;
+using P2PDraw.Core.Sync;
+using P2PDraw.Networking.Protocol;
+using P2PDraw.Networking.Transport;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
-using P2PDraw.Core;
-using P2PDraw.Networking;
 using Xunit;
 
-namespace P2PDraw.Tests;
+namespace P2PDraw.Tests.Networking;
 
 public class TcpPeerTests
 {

@@ -1,8 +1,8 @@
+using P2PDraw.Networking.Protocol;
 using System.Buffers.Binary;
-using P2PDraw.Networking;
 using Xunit;
 
-namespace P2PDraw.Tests;
+namespace P2PDraw.Tests.Networking;
 
 public class MessageFramingTests
 {

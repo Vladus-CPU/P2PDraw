@@ -1,8 +1,9 @@
+using P2PDraw.Core.Operations;
+using P2PDraw.Core.Sync;
 using System.Text.Json.Serialization;
-using P2PDraw.Core;
 using System.Collections.Immutable;
 
-namespace P2PDraw.Networking;
+namespace P2PDraw.Networking.Protocol;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(HelloMessage), "hello")]

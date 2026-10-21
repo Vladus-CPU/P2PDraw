@@ -1,8 +1,9 @@
+using P2PDraw.Core.Models;
+using P2PDraw.Core.Sync;
+using P2PDraw.Networking.Transport;
 using System.Globalization;
 using System.Net.Sockets;
 using System.Text.Json;
-using P2PDraw.Core;
-using P2PDraw.Networking;
 
 if (args.Length is < 2 or > 3)
 {

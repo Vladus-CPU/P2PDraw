@@ -1,7 +1,7 @@
-using P2PDraw.Core;
+using P2PDraw.Core.Operations;
 using Xunit;
 
-namespace P2PDraw.Tests;
+namespace P2PDraw.Tests.Core;
 
 public class OperationLogTests
 {

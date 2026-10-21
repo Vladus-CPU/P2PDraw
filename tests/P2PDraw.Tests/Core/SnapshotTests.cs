@@ -1,8 +1,8 @@
+using P2PDraw.Core.Sync;
 using System.Text.Json;
-using P2PDraw.Core;
 using Xunit;
 
-namespace P2PDraw.Tests;
+namespace P2PDraw.Tests.Core;
 
 public class SnapshotTests
 {

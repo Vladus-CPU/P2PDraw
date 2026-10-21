@@ -1,4 +1,4 @@
-namespace P2PDraw.Core;
+namespace P2PDraw.Core.Sync;
 
 public sealed class LamportClock
 {

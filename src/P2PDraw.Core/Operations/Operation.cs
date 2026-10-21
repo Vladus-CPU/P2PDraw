@@ -1,7 +1,8 @@
+using P2PDraw.Core.Models;
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 
-namespace P2PDraw.Core;
+namespace P2PDraw.Core.Operations;
 
 public readonly record struct OperationStamp(Guid OperationId, Guid PeerId, long SequenceNumber, long LamportTime) : IComparable<OperationStamp>
 {

@@ -1,7 +1,9 @@
+using P2PDraw.Core.Models;
+using P2PDraw.Core.Operations;
 using System.Collections.Immutable;
 using System.Text.Json;
 
-namespace P2PDraw.Core;
+namespace P2PDraw.Core.Sync;
 
 // The full log also preserves point batches that are waiting for missing data.
 public sealed record Snapshot(Guid SessionId, long LamportTime, ImmutableArray<Stroke> Strokes, ImmutableArray<Guid> Tombstones, ImmutableArray<Operation> Operations, ImmutableArray<Guid> PendingStrokeIds)

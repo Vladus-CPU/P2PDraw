@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace P2PDraw.Core;
+namespace P2PDraw.Core.Operations;
 
 public sealed class OperationLog
 {

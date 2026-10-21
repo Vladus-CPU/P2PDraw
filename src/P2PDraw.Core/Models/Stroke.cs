@@ -1,6 +1,7 @@
+using P2PDraw.Core.Operations;
 using System.Collections.Immutable;
 
-namespace P2PDraw.Core;
+namespace P2PDraw.Core.Models;
 
 public readonly record struct StrokePoint(double X, double Y);
 

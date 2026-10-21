@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Text.Json;
 using Xunit;
 
-namespace P2PDraw.Tests;
+namespace P2PDraw.Tests.Integration;
 
 public class SimulatorProcessTests
 {

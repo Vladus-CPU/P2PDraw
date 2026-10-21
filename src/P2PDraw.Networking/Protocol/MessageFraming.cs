@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace P2PDraw.Networking;
+namespace P2PDraw.Networking.Protocol;
 
 public static class MessageFraming
 {

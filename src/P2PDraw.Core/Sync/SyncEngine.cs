@@ -1,6 +1,8 @@
+using P2PDraw.Core.Models;
+using P2PDraw.Core.Operations;
 using System.Collections.Immutable;
 
-namespace P2PDraw.Core;
+namespace P2PDraw.Core.Sync;
 
 public sealed class SyncEngine
 {
