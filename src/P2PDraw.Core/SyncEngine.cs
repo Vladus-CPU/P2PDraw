@@ -6,7 +6,7 @@ public sealed class SyncEngine
 {
     private readonly object gate = new();
     private readonly LamportClock clock = new();
-    private readonly DocumentState document = new();
+    private DocumentState document = new();
     private long sequence;
 
     public Guid PeerId { get; }
@@ -25,6 +25,32 @@ public sealed class SyncEngine
     public ImmutableArray<Guid> GetPendingStrokeIds() { lock (gate) return document.GetPendingStrokeIds(); }
     public ImmutableArray<Operation> GetOperations() { lock (gate) return document.GetOperations(); }
     public ImmutableArray<Operation> GetMissingOperations(IEnumerable<Guid> knownIds) { lock (gate) return document.GetMissingOperations(knownIds); }
+
+    public Snapshot CreateSnapshot()
+    {
+        lock (gate) return new Snapshot(SessionId, clock.Value, document.GetStrokes(), document.GetTombstones(), document.GetOperations());
+    }
+
+    public void MergeSnapshot(Snapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.SessionId != SessionId) throw new ArgumentException("Snapshot belongs to another session.");
+        snapshot.Validate();
+        lock (gate)
+        {
+            var merged = new DocumentState();
+            foreach (var operation in document.GetOperations()) merged.Apply(operation);
+            bool hasNewOperations = false;
+            foreach (var operation in snapshot.Operations) hasNewOperations |= merged.Apply(operation);
+            if (hasNewOperations)
+            {
+                if (clock.Value == long.MaxValue) throw new ArgumentException("Logical time is exhausted.");
+                clock.Receive(snapshot.LamportTime);
+            }
+            sequence = Math.Max(sequence, snapshot.Operations.Where(op => op.Stamp.PeerId == PeerId).Select(op => op.Stamp.SequenceNumber).DefaultIfEmpty().Max());
+            document = merged;
+        }
+    }
 
     public StrokeBegin BeginStroke(uint color, double width)
     {
