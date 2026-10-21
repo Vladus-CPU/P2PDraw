@@ -27,6 +27,15 @@ public class SimulatorProcessTests
         Assert.Single(states[0].GetProperty("strokes").EnumerateArray());
         Assert.Single(states[0].GetProperty("tombstones").EnumerateArray());
         Assert.Equal(states[0].GetRawText(), states[1].GetRawText());
+
+        await a.CommandAsync("disconnect");
+        await WaitForStateAsync(a, b, 7, 0);
+        await Task.WhenAll(a.CommandAsync("clear"), b.CommandAsync("draw 9 10 11 12"));
+        await a.CommandAsync($"connect 127.0.0.1 {bReady.GetProperty("port").GetInt32()}");
+        states = await WaitForStateAsync(a, b, 11, 1);
+        Assert.Equal(states[0].GetRawText(), states[1].GetRawText());
+        Assert.Single(states[0].GetProperty("strokes").EnumerateArray());
+        Assert.Equal(2, states[0].GetProperty("tombstones").GetArrayLength());
     }
 
     private static async Task<JsonElement[]> WaitForStateAsync(SimulatorProcess a, SimulatorProcess b, int operationCount, int connections)

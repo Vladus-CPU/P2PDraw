@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Net;
 using System.Net.Sockets;
 using P2PDraw.Core;
@@ -45,7 +46,7 @@ public sealed class TcpPeer : IAsyncDisposable
                 throw new InvalidDataException("Expected WELCOME.");
             ValidateHello(welcome.PeerId, welcome.SessionId, welcome.ProtocolVersion);
             var connection = new Connection(client, welcome.PeerId, true);
-            if (Register(connection)) Track(ReadAsync(connection));
+            if (Register(connection)) Track(RunConnectionAsync(connection));
             else client.Dispose();
             return welcome.PeerId;
         }
@@ -103,7 +104,7 @@ public sealed class TcpPeer : IAsyncDisposable
             ValidateHello(hello.PeerId, hello.SessionId, hello.ProtocolVersion);
             await MessageFraming.WriteAsync<NetworkMessage>(stream, new WelcomeMessage(engine.PeerId, engine.SessionId, ProtocolVersion), timeout.Token);
             var connection = new Connection(client, hello.PeerId, false);
-            if (Register(connection)) await ReadAsync(connection);
+            if (Register(connection)) await RunConnectionAsync(connection);
         }
         catch (Exception exception) when (IsConnectionError(exception))
         {
@@ -133,14 +134,63 @@ public sealed class TcpPeer : IAsyncDisposable
         return true;
     }
 
+    private async Task RunConnectionAsync(Connection connection)
+    {
+        var reading = ReadAsync(connection);
+        connection.RepairRequested = true;
+        await SendAsync(connection, CreateSyncRequest(), lifetime.Token);
+        await reading;
+    }
+
+    private SyncRequestMessage CreateSyncRequest() => new(engine.GetOperations().Select(op => op.Stamp.OperationId).ToImmutableArray());
+
+    private async Task RespondToSyncAsync(Connection connection, SyncRequestMessage request)
+    {
+        if (request.KnownOperationIds.IsEmpty)
+        {
+            var snapshot = engine.CreateSnapshot();
+            await SendAsync(connection, new SnapshotMessage(snapshot), lifetime.Token);
+            foreach (var operation in engine.GetMissingOperations(snapshot.Operations.Select(op => op.Stamp.OperationId)))
+                await SendAsync(connection, new OperationMessage(operation), lifetime.Token);
+        }
+        else
+        {
+            foreach (var operation in engine.GetMissingOperations(request.KnownOperationIds))
+                await SendAsync(connection, new OperationMessage(operation), lifetime.Token);
+        }
+        await SendAsync(connection, new SyncCompleteMessage(), lifetime.Token);
+    }
+
     private async Task ReadAsync(Connection connection)
     {
         try
         {
             while (await MessageFraming.ReadAsync<NetworkMessage>(connection.Client.GetStream(), lifetime.Token) is { } message)
             {
-                if (message is not OperationMessage { Operation: not null } received) throw new InvalidDataException("Expected operation.");
-                if (engine.Receive(received.Operation)) Changed?.Invoke();
+                switch (message)
+                {
+                    case OperationMessage { Operation: not null } received:
+                        if (engine.Receive(received.Operation)) Changed?.Invoke();
+                        if (!connection.RepairRequested && !engine.GetPendingStrokeIds().IsEmpty)
+                        {
+                            connection.RepairRequested = true;
+                            Track(SendAsync(connection, CreateSyncRequest(), lifetime.Token));
+                        }
+                        break;
+                    case SyncRequestMessage request when !request.KnownOperationIds.IsDefault && request.KnownOperationIds.All(id => id != Guid.Empty):
+                        // Send in parallel with reading so two large snapshots cannot block each other.
+                        Track(RespondToSyncAsync(connection, request));
+                        break;
+                    case SnapshotMessage { Snapshot: not null } received:
+                        engine.MergeSnapshot(received.Snapshot);
+                        Changed?.Invoke();
+                        break;
+                    case SyncCompleteMessage:
+                        connection.RepairRequested = false;
+                        break;
+                    default:
+                        throw new InvalidDataException("Unexpected or invalid message.");
+                }
             }
         }
         catch (Exception exception) when (IsConnectionError(exception))
@@ -205,6 +255,7 @@ public sealed class TcpPeer : IAsyncDisposable
         public TcpClient Client { get; } = client;
         public Guid PeerId { get; } = peerId;
         public bool Outgoing { get; } = outgoing;
+        public bool RepairRequested { get; set; }
 
         public async Task SendAsync(NetworkMessage message, CancellationToken cancellationToken)
         {
