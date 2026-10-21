@@ -12,7 +12,7 @@ public sealed class DocumentState
     private readonly HashSet<Guid> pendingStrokes = [];
 
     public int OperationCount => log.Count;
-    public bool ContainsOperation(Guid id) => log.Contains(id);
+    public bool ContainsOperation(Guid operationId) => log.Contains(operationId);
     public ImmutableArray<Operation> GetOperations() => log.GetOperations();
     public ImmutableArray<Operation> GetMissingOperations(IEnumerable<Guid> knownIds) => log.GetMissingOperations(knownIds);
     public ImmutableArray<Guid> GetTombstones() => tombstones.Order().ToImmutableArray();
@@ -52,37 +52,46 @@ public sealed class DocumentState
         return true;
     }
 
-    private void Remove(Guid id)
+    private void Remove(Guid strokeId)
     {
-        tombstones.Add(id);
-        strokes.Remove(id);
-        strokeOperations.Remove(id);
-        pendingStrokes.Remove(id);
+        tombstones.Add(strokeId);
+        strokes.Remove(strokeId);
+        strokeOperations.Remove(strokeId);
+        pendingStrokes.Remove(strokeId);
     }
 
-    private void RebuildStroke(Guid id, List<Operation> changes)
+    private void RebuildStroke(Guid strokeId, List<Operation> changes)
     {
-        var ordered = changes.OrderBy(op => op.Stamp).ToArray();
-        var begin = ordered.OfType<StrokeBegin>().FirstOrDefault();
+        var orderedOperations = changes.OrderBy(operation => operation.Stamp).ToArray();
+        var begin = orderedOperations.OfType<StrokeBegin>().FirstOrDefault();
         if (begin is null)
         {
-            pendingStrokes.Add(id);
+            pendingStrokes.Add(strokeId);
             return;
         }
 
         var points = new SortedDictionary<int, StrokePoint>();
-        foreach (var append in ordered.OfType<StrokeAppend>().Where(op => op.Stamp.PeerId == begin.Stamp.PeerId))
+        foreach (var operation in orderedOperations)
         {
+            if (operation is not StrokeAppend append || append.Stamp.PeerId != begin.Stamp.PeerId) continue;
             for (int i = 0; i < append.Points.Length; i++) points.TryAdd(append.StartIndex + i, append.Points[i]);
         }
         var contiguous = ImmutableArray.CreateBuilder<StrokePoint>();
         while (points.TryGetValue(contiguous.Count, out var point)) contiguous.Add(point);
 
-        var end = ordered.OfType<StrokeEnd>().FirstOrDefault(op => op.Stamp.PeerId == begin.Stamp.PeerId);
+        StrokeEnd? end = null;
+        foreach (var operation in orderedOperations)
+        {
+            if (operation is StrokeEnd strokeEnd && strokeEnd.Stamp.PeerId == begin.Stamp.PeerId)
+            {
+                end = strokeEnd;
+                break;
+            }
+        }
         bool hasGap = contiguous.Count != points.Count || (end is not null && contiguous.Count != end.PointCount);
-        if (hasGap) pendingStrokes.Add(id);
-        else pendingStrokes.Remove(id);
+        if (hasGap) pendingStrokes.Add(strokeId);
+        else pendingStrokes.Remove(strokeId);
 
-        strokes[id] = new Stroke(id, begin.Stamp.PeerId, begin.Color, begin.Width, begin.Stamp, contiguous.ToImmutable(), end is not null && !hasGap);
+        strokes[strokeId] = new Stroke(strokeId, begin.Stamp.PeerId, begin.Color, begin.Width, begin.Stamp, contiguous.ToImmutable(), end is not null && !hasGap);
     }
 }

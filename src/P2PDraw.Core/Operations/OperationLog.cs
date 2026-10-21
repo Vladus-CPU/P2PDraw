@@ -23,13 +23,26 @@ public sealed class OperationLog
         return true;
     }
 
-    public ImmutableArray<Operation> GetOperations() => operations.Values.OrderBy(op => op.Stamp).ToImmutableArray();
+    public ImmutableArray<Operation> GetOperations() => operations.Values.OrderBy(operation => operation.Stamp).ToImmutableArray();
 
     public ImmutableArray<Operation> GetMissingOperations(IEnumerable<Guid> knownOperationIds)
     {
-        var known = knownOperationIds.ToHashSet();
-        return GetOperations().Where(op => !known.Contains(op.Stamp.OperationId)).ToImmutableArray();
+        var knownIds = knownOperationIds.ToHashSet();
+        var missingOperations = ImmutableArray.CreateBuilder<Operation>();
+        foreach (var operation in GetOperations())
+        {
+            if (!knownIds.Contains(operation.Stamp.OperationId)) missingOperations.Add(operation);
+        }
+        return missingOperations.ToImmutable();
     }
 
-    public long GetLastSequence(Guid peerId) => sequences.Keys.Where(key => key.PeerId == peerId).Select(key => key.SequenceNumber).DefaultIfEmpty().Max();
+    public long GetLastSequence(Guid peerId)
+    {
+        long lastSequence = 0;
+        foreach (var key in sequences.Keys)
+        {
+            if (key.PeerId == peerId) lastSequence = Math.Max(lastSequence, key.SequenceNumber);
+        }
+        return lastSequence;
+    }
 }

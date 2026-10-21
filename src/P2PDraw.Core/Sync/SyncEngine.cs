@@ -13,7 +13,10 @@ public sealed class SyncEngine
 
     public Guid PeerId { get; }
     public Guid SessionId { get; }
-    public long LamportTime { get { lock (gate) return clock.Value; } }
+    public long LamportTime
+    {
+        get { lock (gate) return clock.Value; }
+    }
 
     public SyncEngine(Guid peerId, Guid sessionId)
     {
@@ -22,11 +25,30 @@ public sealed class SyncEngine
         SessionId = sessionId;
     }
 
-    public ImmutableArray<Stroke> GetStrokes() { lock (gate) return document.GetStrokes(); }
-    public ImmutableArray<Guid> GetTombstones() { lock (gate) return document.GetTombstones(); }
-    public ImmutableArray<Guid> GetPendingStrokeIds() { lock (gate) return document.GetPendingStrokeIds(); }
-    public ImmutableArray<Operation> GetOperations() { lock (gate) return document.GetOperations(); }
-    public ImmutableArray<Operation> GetMissingOperations(IEnumerable<Guid> knownIds) { lock (gate) return document.GetMissingOperations(knownIds); }
+    public ImmutableArray<Stroke> GetStrokes()
+    {
+        lock (gate) return document.GetStrokes();
+    }
+
+    public ImmutableArray<Guid> GetTombstones()
+    {
+        lock (gate) return document.GetTombstones();
+    }
+
+    public ImmutableArray<Guid> GetPendingStrokeIds()
+    {
+        lock (gate) return document.GetPendingStrokeIds();
+    }
+
+    public ImmutableArray<Operation> GetOperations()
+    {
+        lock (gate) return document.GetOperations();
+    }
+
+    public ImmutableArray<Operation> GetMissingOperations(IEnumerable<Guid> knownIds)
+    {
+        lock (gate) return document.GetMissingOperations(knownIds);
+    }
 
     public Snapshot CreateSnapshot()
     {
@@ -43,13 +65,18 @@ public sealed class SyncEngine
             var merged = new DocumentState();
             foreach (var operation in document.GetOperations()) merged.Apply(operation);
             bool hasNewOperations = false;
-            foreach (var operation in snapshot.Operations) hasNewOperations |= merged.Apply(operation);
+            long restoredSequence = sequence;
+            foreach (var operation in snapshot.Operations)
+            {
+                if (merged.Apply(operation)) hasNewOperations = true;
+                if (operation.Stamp.PeerId == PeerId) restoredSequence = Math.Max(restoredSequence, operation.Stamp.SequenceNumber);
+            }
             if (hasNewOperations)
             {
                 if (clock.Value == long.MaxValue) throw new ArgumentException("Logical time is exhausted.");
                 clock.Receive(snapshot.LamportTime);
             }
-            sequence = Math.Max(sequence, snapshot.Operations.Where(op => op.Stamp.PeerId == PeerId).Select(op => op.Stamp.SequenceNumber).DefaultIfEmpty().Max());
+            sequence = restoredSequence;
             document = merged;
         }
     }
@@ -134,10 +161,10 @@ public sealed class SyncEngine
         return new(Guid.NewGuid(), PeerId, sequence, time);
     }
 
-    private Stroke GetEditableStroke(Guid id)
+    private Stroke GetEditableStroke(Guid strokeId)
     {
-        var stroke = document.GetStrokes().FirstOrDefault(stroke => stroke.StrokeId == id);
-        if (stroke is null || stroke.PeerId != PeerId || stroke.IsComplete || document.GetPendingStrokeIds().Contains(id))
+        var stroke = document.GetStrokes().FirstOrDefault(stroke => stroke.StrokeId == strokeId);
+        if (stroke is null || stroke.PeerId != PeerId || stroke.IsComplete || document.GetPendingStrokeIds().Contains(strokeId))
             throw new InvalidOperationException("Stroke cannot be edited by this peer.");
         return stroke;
     }

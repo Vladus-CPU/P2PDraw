@@ -28,16 +28,45 @@ public abstract record Operation(OperationStamp Stamp)
         if (Stamp.OperationId == Guid.Empty || Stamp.PeerId == Guid.Empty || Stamp.SequenceNumber <= 0 || Stamp.LamportTime <= 0)
             throw new ArgumentException("Invalid operation stamp.");
 
-        bool valid = this switch
+        bool valid = false;
+        switch (this)
         {
-            StrokeBegin begin => begin.StrokeId != Guid.Empty && double.IsFinite(begin.Width) && begin.Width > 0,
-            StrokeAppend append => append.StrokeId != Guid.Empty && append.StartIndex >= 0 && !append.Points.IsDefaultOrEmpty
-                && append.StartIndex <= int.MaxValue - append.Points.Length && append.Points.All(p => double.IsFinite(p.X) && double.IsFinite(p.Y)),
-            StrokeEnd end => end.StrokeId != Guid.Empty && end.PointCount >= 0,
-            StrokeRemove remove => remove.StrokeId != Guid.Empty,
-            CanvasClear clear => !clear.StrokeIds.IsDefault && clear.StrokeIds.All(id => id != Guid.Empty),
-            _ => false
-        };
+            case StrokeBegin begin:
+                valid = begin.StrokeId != Guid.Empty && double.IsFinite(begin.Width) && begin.Width > 0;
+                break;
+            case StrokeAppend append:
+                valid = append.StrokeId != Guid.Empty && append.StartIndex >= 0 && !append.Points.IsDefaultOrEmpty;
+                if (!valid) break;
+                valid = append.StartIndex <= int.MaxValue - append.Points.Length;
+                if (!valid) break;
+                foreach (var point in append.Points)
+                {
+                    if (!double.IsFinite(point.X) || !double.IsFinite(point.Y))
+                    {
+                        valid = false;
+                        break;
+                    }
+                }
+                break;
+            case StrokeEnd end:
+                valid = end.StrokeId != Guid.Empty && end.PointCount >= 0;
+                break;
+            case StrokeRemove remove:
+                valid = remove.StrokeId != Guid.Empty;
+                break;
+            case CanvasClear clear:
+                valid = !clear.StrokeIds.IsDefault;
+                if (!valid) break;
+                foreach (var strokeId in clear.StrokeIds)
+                {
+                    if (strokeId == Guid.Empty)
+                    {
+                        valid = false;
+                        break;
+                    }
+                }
+                break;
+        }
         if (!valid) throw new ArgumentException("Invalid operation payload.");
     }
 }
