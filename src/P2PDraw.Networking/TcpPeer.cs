@@ -123,7 +123,7 @@ public sealed class TcpPeer : IAsyncDisposable
             ValidateHello(hello.PeerId, hello.SessionId, hello.ProtocolVersion);
             lock (gate)
             {
-                if (paused) throw new InvalidDataException("Peer is disconnected manually.");
+                if (paused) return;
             }
             await MessageFraming.WriteAsync<NetworkMessage>(stream, new WelcomeMessage(engine.PeerId, engine.SessionId, ProtocolVersion), timeout.Token);
             var connection = new Connection(client, hello.PeerId, false);

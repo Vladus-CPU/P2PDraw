@@ -17,6 +17,78 @@ public class TcpPeerTests
     }
 
     [Fact]
+    public async Task InvalidLiveOperationDisconnectsClientWithoutChangingDocument()
+    {
+        var engine = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
+        await using var server = new TcpPeer(engine);
+        server.Start(0, IPAddress.Loopback);
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, TestContext.Current.CancellationToken);
+        var stream = client.GetStream();
+        await MessageFraming.WriteAsync<NetworkMessage>(stream, new HelloMessage(Guid.NewGuid(), engine.SessionId, TcpPeer.ProtocolVersion), TestContext.Current.CancellationToken);
+        Assert.IsType<WelcomeMessage>(await MessageFraming.ReadAsync<NetworkMessage>(stream, TestContext.Current.CancellationToken));
+        await WaitUntilAsync(() => server.ConnectionCount == 1);
+        await MessageFraming.WriteAsync<NetworkMessage>(stream, new OperationMessage(new StrokeBegin(default, Guid.NewGuid(), 0, 1)), TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => server.ConnectionCount == 0);
+        Assert.Empty(engine.GetOperations());
+        Assert.Empty(engine.GetStrokes());
+        await using var valid = new TcpPeer(new SyncEngine(Guid.NewGuid(), engine.SessionId));
+        await valid.ConnectAsync("127.0.0.1", server.Port, TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => server.ConnectionCount == 1);
+    }
+
+    [Theory]
+    [InlineData("session")]
+    [InlineData("version")]
+    [InlineData("self")]
+    [InlineData("empty")]
+    public async Task ClientRejectsInvalidWelcome(string kind)
+    {
+        var engine = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
+        await using var peer = new TcpPeer(engine);
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            var connecting = peer.ConnectAsync("127.0.0.1", ((IPEndPoint)listener.LocalEndpoint).Port, TestContext.Current.CancellationToken);
+            using var client = await listener.AcceptTcpClientAsync(TestContext.Current.CancellationToken);
+            var stream = client.GetStream();
+            Assert.IsType<HelloMessage>(await MessageFraming.ReadAsync<NetworkMessage>(stream, TestContext.Current.CancellationToken));
+            Guid id = kind == "self" ? engine.PeerId : kind == "empty" ? Guid.Empty : Guid.NewGuid();
+            var welcome = new WelcomeMessage(id, kind == "session" ? Guid.NewGuid() : engine.SessionId, kind == "version" ? 999 : TcpPeer.ProtocolVersion);
+            await MessageFraming.WriteAsync<NetworkMessage>(stream, welcome, TestContext.Current.CancellationToken);
+            await Assert.ThrowsAsync<InvalidDataException>(() => connecting);
+            Assert.Equal(0, peer.ConnectionCount);
+        }
+        finally { listener.Stop(); }
+    }
+
+    [Fact]
+    public async Task LargeSnapshotAndConcurrentLiveEditsConverge()
+    {
+        var a = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
+        var b = new SyncEngine(Guid.NewGuid(), a.SessionId);
+        for (int i = 0; i < 1200; i++)
+        {
+            var begin = a.BeginStroke(0, 1);
+            a.AppendStroke(begin.StrokeId, [new(i, i), new(i + 1, i + 1)]);
+            a.EndStroke(begin.StrokeId);
+        }
+        await using var first = new TcpPeer(a);
+        await using var second = new TcpPeer(b);
+        first.Start(0, IPAddress.Loopback);
+        await second.ConnectAsync("127.0.0.1", first.Port, TestContext.Current.CancellationToken);
+        var live = a.BeginStroke(0, 2);
+        await first.SendOperationAsync(live, TestContext.Current.CancellationToken);
+        await first.SendOperationAsync(a.AppendStroke(live.StrokeId, [new(5, 6)]), TestContext.Current.CancellationToken);
+        await first.SendOperationAsync(a.EndStroke(live.StrokeId), TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => b.GetOperations().Length == 3603);
+        Assert.Equal(1201, b.GetStrokes().Length);
+        Assert.Empty(b.GetPendingStrokeIds());
+        Assert.Equal(JsonSerializer.Serialize(a.GetStrokes()), JsonSerializer.Serialize(b.GetStrokes()));
+    }
+
+    [Fact]
     public async Task DroppedConnectionReconnectsAndRecoversUnsentOperations()
     {
         var a = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());

@@ -67,8 +67,12 @@ try
                     peer.DisconnectAll(reconnect: true);
                     break;
                 case "state" when words.Length == 1:
-                    Write(new { @event = "state", connections = peer.ConnectionCount, strokes = engine.GetStrokes(), tombstones = engine.GetTombstones(),
-                        pending = engine.GetPendingStrokeIds(), operations = engine.GetOperations().Select(op => op.Stamp.OperationId) });
+                    var snapshot = engine.CreateSnapshot();
+                    Write(new { @event = "state", connections = peer.ConnectionCount, strokes = snapshot.Strokes, tombstones = snapshot.Tombstones,
+                        pending = snapshot.PendingStrokeIds, operations = snapshot.Operations.Select(op => op.Stamp.OperationId) });
+                    continue;
+                case "snapshot" when words.Length == 1:
+                    Write(new { @event = "snapshot", snapshot = engine.CreateSnapshot() });
                     continue;
                 case "log" when words.Length == 1:
                     Write(new { @event = "log", operations = engine.GetOperations() });
@@ -76,7 +80,7 @@ try
                 case "quit" when words.Length == 1:
                     return 0;
                 case "help":
-                    Write(new { @event = "help", commands = new[] { "connect <ip> <port>", "begin", "append <stroke-id> <x> <y> [x y ...]", "end <stroke-id>", "draw <x1> <y1> <x2> <y2>", "remove <stroke-id>", "clear", "duplicate", "disconnect", "drop", "state", "log", "quit" } });
+                    Write(new { @event = "help", commands = new[] { "connect <ip> <port>", "begin", "append <stroke-id> <x> <y> [x y ...]", "end <stroke-id>", "draw <x1> <y1> <x2> <y2>", "remove <stroke-id>", "clear", "duplicate", "disconnect", "drop", "state", "snapshot", "log", "quit" } });
                     continue;
                 default:
                     throw new ArgumentException("Unknown command or wrong arguments. Use help.");

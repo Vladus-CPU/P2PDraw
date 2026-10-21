@@ -74,6 +74,8 @@ public class SnapshotTests
         Assert.Throws<ArgumentException>(() => engine.MergeSnapshot(snapshot with { SessionId = Guid.NewGuid() }));
         Assert.Throws<ArgumentException>(() => engine.MergeSnapshot(snapshot with { Operations = default }));
         Assert.Throws<ArgumentException>(() => engine.MergeSnapshot(snapshot with { LamportTime = 0 }));
+        Assert.Throws<ArgumentException>(() => engine.MergeSnapshot(snapshot with { PendingStrokeIds = default }));
+        Assert.Throws<ArgumentException>(() => engine.MergeSnapshot(snapshot with { Strokes = [snapshot.Strokes[0] with { Points = default }] }));
         Assert.Equal(JsonSerializer.Serialize(snapshot), JsonSerializer.Serialize(engine.CreateSnapshot()));
     }
 

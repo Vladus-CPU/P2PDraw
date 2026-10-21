@@ -28,7 +28,7 @@ public sealed class SyncEngine
 
     public Snapshot CreateSnapshot()
     {
-        lock (gate) return new Snapshot(SessionId, clock.Value, document.GetStrokes(), document.GetTombstones(), document.GetOperations());
+        lock (gate) return new Snapshot(SessionId, clock.Value, document.GetStrokes(), document.GetTombstones(), document.GetOperations(), document.GetPendingStrokeIds());
     }
 
     public void MergeSnapshot(Snapshot snapshot)
