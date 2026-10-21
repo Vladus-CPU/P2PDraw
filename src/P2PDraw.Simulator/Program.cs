@@ -14,16 +14,24 @@ if (args.Length is < 2 or > 3)
 try
 {
     int port = int.Parse(args[0], CultureInfo.InvariantCulture);
-    var engine = new SyncEngine(args.Length == 3 ? Guid.Parse(args[2]) : Guid.NewGuid(), Guid.Parse(args[1]));
+    Guid peerId = args.Length == 3 ? Guid.Parse(args[2]) : Guid.NewGuid();
+    Guid sessionId = Guid.Parse(args[1]);
+    var engine = new SyncEngine(peerId, sessionId);
     await using var peer = new TcpPeer(engine);
     using var stop = new CancellationTokenSource();
-    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+    Console.CancelKeyPress += (_, eventArgs) =>
+    {
+        eventArgs.Cancel = true;
+        stop.Cancel();
+    };
     peer.Error += error => Console.Error.WriteLine(error);
     peer.Start(port);
     Write(new { @event = "ready", port = peer.Port, peerId = engine.PeerId, sessionId = engine.SessionId });
 
-    while (await Console.In.ReadLineAsync(stop.Token) is { } line)
+    while (true)
     {
+        string? line = await Console.In.ReadLineAsync(stop.Token);
+        if (line is null) break;
         string[] words = line.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (words.Length == 0) continue;
         try
@@ -31,7 +39,8 @@ try
             switch (words[0].ToLowerInvariant())
             {
                 case "connect" when words.Length == 3:
-                    await peer.ConnectAsync(words[1], int.Parse(words[2], CultureInfo.InvariantCulture), stop.Token);
+                    int remotePort = int.Parse(words[2], CultureInfo.InvariantCulture);
+                    await peer.ConnectAsync(words[1], remotePort, stop.Token);
                     break;
                 case "begin" when words.Length == 1:
                     var begin = engine.BeginStroke(0xFF112233, 2);
@@ -39,24 +48,39 @@ try
                     Write(new { @event = "done", command = "begin", strokeId = begin.StrokeId });
                     continue;
                 case "append" when words.Length >= 4 && words.Length % 2 == 0:
-                    var points = Enumerable.Range(0, (words.Length - 2) / 2).Select(i => new StrokePoint(Number(words[2 + 2 * i]), Number(words[3 + 2 * i])));
-                    await peer.SendOperationAsync(engine.AppendStroke(Guid.Parse(words[1]), points), stop.Token);
+                    Guid strokeId = Guid.Parse(words[1]);
+                    var points = new List<StrokePoint>();
+                    for (int i = 2; i < words.Length; i += 2)
+                    {
+                        double x = ParseNumber(words[i]);
+                        double y = ParseNumber(words[i + 1]);
+                        points.Add(new StrokePoint(x, y));
+                    }
+                    var append = engine.AppendStroke(strokeId, points);
+                    await peer.SendOperationAsync(append, stop.Token);
                     break;
                 case "end" when words.Length == 2:
-                    await peer.SendOperationAsync(engine.EndStroke(Guid.Parse(words[1])), stop.Token);
+                    var end = engine.EndStroke(Guid.Parse(words[1]));
+                    await peer.SendOperationAsync(end, stop.Token);
                     break;
                 case "draw" when words.Length == 5:
                     var stroke = engine.BeginStroke(0xFF112233, 2);
                     await peer.SendOperationAsync(stroke, stop.Token);
-                    await peer.SendOperationAsync(engine.AppendStroke(stroke.StrokeId, [new(Number(words[1]), Number(words[2])), new(Number(words[3]), Number(words[4]))]), stop.Token);
-                    await peer.SendOperationAsync(engine.EndStroke(stroke.StrokeId), stop.Token);
+                    var startPoint = new StrokePoint(ParseNumber(words[1]), ParseNumber(words[2]));
+                    var endPoint = new StrokePoint(ParseNumber(words[3]), ParseNumber(words[4]));
+                    var strokeAppend = engine.AppendStroke(stroke.StrokeId, [startPoint, endPoint]);
+                    await peer.SendOperationAsync(strokeAppend, stop.Token);
+                    var strokeEnd = engine.EndStroke(stroke.StrokeId);
+                    await peer.SendOperationAsync(strokeEnd, stop.Token);
                     Write(new { @event = "done", command = "draw", strokeId = stroke.StrokeId });
                     continue;
                 case "remove" when words.Length == 2:
-                    await peer.SendOperationAsync(engine.RemoveStroke(Guid.Parse(words[1])), stop.Token);
+                    var remove = engine.RemoveStroke(Guid.Parse(words[1]));
+                    await peer.SendOperationAsync(remove, stop.Token);
                     break;
                 case "clear" when words.Length == 1:
-                    await peer.SendOperationAsync(engine.ClearCanvas(), stop.Token);
+                    var clear = engine.ClearCanvas();
+                    await peer.SendOperationAsync(clear, stop.Token);
                     break;
                 case "duplicate" when words.Length == 1:
                     foreach (var operation in engine.GetOperations()) await peer.SendOperationAsync(operation, stop.Token);
@@ -69,8 +93,9 @@ try
                     break;
                 case "state" when words.Length == 1:
                     var snapshot = engine.CreateSnapshot();
+                    var operationIds = snapshot.Operations.Select(operation => operation.Stamp.OperationId);
                     Write(new { @event = "state", connections = peer.ConnectionCount, strokes = snapshot.Strokes, tombstones = snapshot.Tombstones,
-                        pending = snapshot.PendingStrokeIds, operations = snapshot.Operations.Select(op => op.Stamp.OperationId) });
+                        pending = snapshot.PendingStrokeIds, operations = operationIds });
                     continue;
                 case "snapshot" when words.Length == 1:
                     Write(new { @event = "snapshot", snapshot = engine.CreateSnapshot() });
@@ -81,7 +106,9 @@ try
                 case "quit" when words.Length == 1:
                     return 0;
                 case "help":
-                    Write(new { @event = "help", commands = new[] { "connect <ip> <port>", "begin", "append <stroke-id> <x> <y> [x y ...]", "end <stroke-id>", "draw <x1> <y1> <x2> <y2>", "remove <stroke-id>", "clear", "duplicate", "disconnect", "drop", "state", "snapshot", "log", "quit" } });
+                    string[] commands = ["connect <ip> <port>", "begin", "append <stroke-id> <x> <y> [x y ...]", "end <stroke-id>",
+                        "draw <x1> <y1> <x2> <y2>", "remove <stroke-id>", "clear", "duplicate", "disconnect", "drop", "state", "snapshot", "log", "quit"];
+                    Write(new { @event = "help", commands });
                     continue;
                 default:
                     throw new ArgumentException("Unknown command or wrong arguments. Use help.");
@@ -103,4 +130,4 @@ catch (Exception exception) when (exception is ArgumentException or SocketExcept
 }
 
 static void Write<T>(T value) => Console.WriteLine(JsonSerializer.Serialize(value));
-static double Number(string value) => double.Parse(value, CultureInfo.InvariantCulture);
+static double ParseNumber(string value) => double.Parse(value, CultureInfo.InvariantCulture);
