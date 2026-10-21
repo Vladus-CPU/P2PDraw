@@ -24,7 +24,10 @@ public sealed class TcpPeer : IAsyncDisposable
     public event Action? Changed;
     public event Action<string>? Error;
     public int Port => (listener?.LocalEndpoint as IPEndPoint)?.Port ?? 0;
-    public int ConnectionCount { get { lock (gate) return connections.Count; } }
+    public int ConnectionCount
+    {
+        get { lock (gate) return connections.Count; }
+    }
 
     public TcpPeer(SyncEngine engine)
     {
@@ -56,9 +59,10 @@ public sealed class TcpPeer : IAsyncDisposable
         {
             await client.ConnectAsync(host, port, timeout.Token);
             var stream = client.GetStream();
-            await MessageFraming.WriteAsync<NetworkMessage>(stream, new HelloMessage(engine.PeerId, engine.SessionId, ProtocolVersion), timeout.Token);
-            if (await MessageFraming.ReadAsync<NetworkMessage>(stream, timeout.Token) is not WelcomeMessage welcome)
-                throw new InvalidDataException("Expected WELCOME.");
+            var hello = new HelloMessage(engine.PeerId, engine.SessionId, ProtocolVersion);
+            await MessageFraming.WriteAsync<NetworkMessage>(stream, hello, timeout.Token);
+            var response = await MessageFraming.ReadAsync<NetworkMessage>(stream, timeout.Token);
+            if (response is not WelcomeMessage welcome) throw new InvalidDataException("Expected WELCOME.");
             ValidateHello(welcome.PeerId, welcome.SessionId, welcome.ProtocolVersion);
             if (expectedPeer != Guid.Empty && welcome.PeerId != expectedPeer) throw new InvalidDataException("Reconnected endpoint has a different PeerId.");
             var connection = new Connection(client, welcome.PeerId, true);
@@ -78,7 +82,12 @@ public sealed class TcpPeer : IAsyncDisposable
         operation.Validate();
         Connection[] targets;
         lock (gate) targets = connections.Values.ToArray();
-        await Task.WhenAll(targets.Select(connection => SendAsync(connection, new OperationMessage(operation), cancellationToken)));
+        var sendingTasks = new List<Task>();
+        foreach (var connection in targets)
+        {
+            sendingTasks.Add(SendAsync(connection, new OperationMessage(operation), cancellationToken));
+        }
+        await Task.WhenAll(sendingTasks);
     }
 
     public void DisconnectAll(bool reconnect = false)
@@ -120,14 +129,15 @@ public sealed class TcpPeer : IAsyncDisposable
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             timeout.CancelAfter(TimeSpan.FromSeconds(5));
             var stream = client.GetStream();
-            if (await MessageFraming.ReadAsync<NetworkMessage>(stream, timeout.Token) is not HelloMessage hello)
-                throw new InvalidDataException("Expected HELLO.");
+            var message = await MessageFraming.ReadAsync<NetworkMessage>(stream, timeout.Token);
+            if (message is not HelloMessage hello) throw new InvalidDataException("Expected HELLO.");
             ValidateHello(hello.PeerId, hello.SessionId, hello.ProtocolVersion);
             lock (gate)
             {
                 if (paused) return;
             }
-            await MessageFraming.WriteAsync<NetworkMessage>(stream, new WelcomeMessage(engine.PeerId, engine.SessionId, ProtocolVersion), timeout.Token);
+            var welcome = new WelcomeMessage(engine.PeerId, engine.SessionId, ProtocolVersion);
+            await MessageFraming.WriteAsync<NetworkMessage>(stream, welcome, timeout.Token);
             var connection = new Connection(client, hello.PeerId, false);
             if (Register(connection)) await RunConnectionAsync(connection);
         }
@@ -172,7 +182,11 @@ public sealed class TcpPeer : IAsyncDisposable
         await reading;
     }
 
-    private SyncRequestMessage CreateSyncRequest() => new(engine.GetOperations().Select(op => op.Stamp.OperationId).ToImmutableArray());
+    private SyncRequestMessage CreateSyncRequest()
+    {
+        var knownIds = engine.GetOperations().Select(operation => operation.Stamp.OperationId).ToImmutableArray();
+        return new SyncRequestMessage(knownIds);
+    }
 
     private async Task RespondToSyncAsync(Connection connection, SyncRequestMessage request)
     {
@@ -180,7 +194,9 @@ public sealed class TcpPeer : IAsyncDisposable
         {
             var snapshot = engine.CreateSnapshot();
             await SendAsync(connection, new SnapshotMessage(snapshot), lifetime.Token);
-            foreach (var operation in engine.GetMissingOperations(snapshot.Operations.Select(op => op.Stamp.OperationId)))
+            var snapshotOperationIds = snapshot.Operations.Select(operation => operation.Stamp.OperationId);
+            var missingOperations = engine.GetMissingOperations(snapshotOperationIds);
+            foreach (var operation in missingOperations)
                 await SendAsync(connection, new OperationMessage(operation), lifetime.Token);
         }
         else
@@ -195,8 +211,10 @@ public sealed class TcpPeer : IAsyncDisposable
     {
         try
         {
-            while (await MessageFraming.ReadAsync<NetworkMessage>(connection.Client.GetStream(), lifetime.Token) is { } message)
+            while (true)
             {
+                var message = await MessageFraming.ReadAsync<NetworkMessage>(connection.Client.GetStream(), lifetime.Token);
+                if (message is null) break;
                 switch (message)
                 {
                     case OperationMessage { Operation: not null } received:
@@ -267,11 +285,22 @@ public sealed class TcpPeer : IAsyncDisposable
         {
             while (await timer.WaitForNextTickAsync(lifetime.Token))
             {
-                KeyValuePair<(string Host, int Port), Guid>[] targets;
-                lock (gate) targets = reconnectTargets.Where(pair => !connections.ContainsKey(pair.Value)).ToArray();
+                var targets = new List<KeyValuePair<(string Host, int Port), Guid>>();
+                lock (gate)
+                {
+                    foreach (var target in reconnectTargets)
+                    {
+                        if (!connections.ContainsKey(target.Value)) targets.Add(target);
+                    }
+                }
                 foreach (var target in targets)
                 {
-                    try { await ConnectCoreAsync(target.Key.Host, target.Key.Port, target.Value, lifetime.Token); }
+                    var endpoint = target.Key;
+                    Guid expectedPeer = target.Value;
+                    try
+                    {
+                        await ConnectCoreAsync(endpoint.Host, endpoint.Port, expectedPeer, lifetime.Token);
+                    }
                     catch (Exception exception) when (IsConnectionError(exception)) { }
                 }
             }
@@ -282,7 +311,10 @@ public sealed class TcpPeer : IAsyncDisposable
     private void Track(Task task)
     {
         lock (gate) tasks.Add(task);
-        _ = task.ContinueWith(completed => { lock (gate) tasks.Remove(completed); }, TaskScheduler.Default);
+        _ = task.ContinueWith(completed =>
+        {
+            lock (gate) tasks.Remove(completed);
+        }, TaskScheduler.Default);
     }
 
     private static bool IsConnectionError(Exception exception) => exception is IOException or SocketException or OperationCanceledException or ObjectDisposedException or ArgumentException;

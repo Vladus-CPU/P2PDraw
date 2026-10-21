@@ -26,7 +26,8 @@ public static class MessageFraming
     public static async Task<T?> ReadAsync<T>(Stream stream, CancellationToken cancellationToken = default) where T : class
     {
         byte[] header = new byte[4];
-        if (await stream.ReadAsync(header.AsMemory(0, 1), cancellationToken) == 0) return null;
+        int bytesRead = await stream.ReadAsync(header.AsMemory(0, 1), cancellationToken);
+        if (bytesRead == 0) return null;
         await stream.ReadExactlyAsync(header.AsMemory(1), cancellationToken);
         int length = BinaryPrimitives.ReadInt32BigEndian(header);
         if (length <= 0 || length > MaxMessageSize) throw new InvalidDataException("Invalid message length.");
