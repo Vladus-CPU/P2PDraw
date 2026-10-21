@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\P2PDraw.Core\P2PDraw.Core.csproj" />
     <ProjectReference Include="..\..\src\P2PDraw.Networking\P2PDraw.Networking.csproj" />
+    <ProjectReference Include="..\..\src\P2PDraw.Simulator\P2PDraw.Simulator.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
