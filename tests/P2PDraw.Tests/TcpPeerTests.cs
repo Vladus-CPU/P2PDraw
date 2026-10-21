@@ -17,6 +17,25 @@ public class TcpPeerTests
     }
 
     [Fact]
+    public async Task DroppedConnectionReconnectsAndRecoversUnsentOperations()
+    {
+        var a = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
+        var b = new SyncEngine(Guid.NewGuid(), a.SessionId);
+        await using var first = new TcpPeer(a);
+        await using var second = new TcpPeer(b);
+        second.Start(0, IPAddress.Loopback);
+        await first.ConnectAsync("127.0.0.1", second.Port, TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => first.ConnectionCount == 1 && second.ConnectionCount == 1);
+        first.DisconnectAll(reconnect: true);
+        a.BeginStroke(0, 1);
+        b.BeginStroke(0, 2);
+        await WaitUntilAsync(() => a.GetStrokes().Length == 2 && b.GetStrokes().Length == 2);
+        Assert.Equal(1, first.ConnectionCount);
+        Assert.Equal(1, second.ConnectionCount);
+        Assert.Equal(JsonSerializer.Serialize(a.GetStrokes()), JsonSerializer.Serialize(b.GetStrokes()));
+    }
+
+    [Fact]
     public async Task NewPeerReceivesSnapshotIncludingTombstones()
     {
         var a = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());

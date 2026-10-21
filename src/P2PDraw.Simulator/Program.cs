@@ -63,6 +63,9 @@ try
                 case "disconnect" when words.Length == 1:
                     peer.DisconnectAll();
                     break;
+                case "drop" when words.Length == 1:
+                    peer.DisconnectAll(reconnect: true);
+                    break;
                 case "state" when words.Length == 1:
                     Write(new { @event = "state", connections = peer.ConnectionCount, strokes = engine.GetStrokes(), tombstones = engine.GetTombstones(),
                         pending = engine.GetPendingStrokeIds(), operations = engine.GetOperations().Select(op => op.Stamp.OperationId) });
@@ -73,7 +76,7 @@ try
                 case "quit" when words.Length == 1:
                     return 0;
                 case "help":
-                    Write(new { @event = "help", commands = new[] { "connect <ip> <port>", "begin", "append <stroke-id> <x> <y> [x y ...]", "end <stroke-id>", "draw <x1> <y1> <x2> <y2>", "remove <stroke-id>", "clear", "duplicate", "disconnect", "state", "log", "quit" } });
+                    Write(new { @event = "help", commands = new[] { "connect <ip> <port>", "begin", "append <stroke-id> <x> <y> [x y ...]", "end <stroke-id>", "draw <x1> <y1> <x2> <y2>", "remove <stroke-id>", "clear", "duplicate", "disconnect", "drop", "state", "log", "quit" } });
                     continue;
                 default:
                     throw new ArgumentException("Unknown command or wrong arguments. Use help.");

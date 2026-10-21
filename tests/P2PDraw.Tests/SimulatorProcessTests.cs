@@ -36,6 +36,14 @@ public class SimulatorProcessTests
         Assert.Equal(states[0].GetRawText(), states[1].GetRawText());
         Assert.Single(states[0].GetProperty("strokes").EnumerateArray());
         Assert.Equal(2, states[0].GetProperty("tombstones").GetArrayLength());
+
+        Guid survivor = states[0].GetProperty("strokes")[0].GetProperty("StrokeId").GetGuid();
+        await a.CommandAsync("drop");
+        await Task.WhenAll(a.CommandAsync("draw 13 14 15 16"), b.CommandAsync($"remove {survivor}"));
+        states = await WaitForStateAsync(a, b, 15, 1);
+        Assert.Equal(states[0].GetRawText(), states[1].GetRawText());
+        Assert.Single(states[0].GetProperty("strokes").EnumerateArray());
+        Assert.Equal(3, states[0].GetProperty("tombstones").GetArrayLength());
     }
 
     private static async Task<JsonElement[]> WaitForStateAsync(SimulatorProcess a, SimulatorProcess b, int operationCount, int connections)
