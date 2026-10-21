@@ -1,0 +1,44 @@
+using System.Buffers.Binary;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace P2PDraw.Networking;
+
+public static class MessageFraming
+{
+    public const int MaxMessageSize = 4 * 1024 * 1024;
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        MaxDepth = 32,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+    };
+
+    public static async Task WriteAsync<T>(Stream stream, T message, CancellationToken cancellationToken = default) where T : class
+    {
+        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(message, JsonOptions);
+        if (payload.Length == 0 || payload.Length > MaxMessageSize) throw new InvalidDataException("Message exceeds the size limit.");
+        byte[] header = new byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(header, payload.Length);
+        await stream.WriteAsync(header, cancellationToken);
+        await stream.WriteAsync(payload, cancellationToken);
+    }
+
+    public static async Task<T?> ReadAsync<T>(Stream stream, CancellationToken cancellationToken = default) where T : class
+    {
+        byte[] header = new byte[4];
+        if (await stream.ReadAsync(header.AsMemory(0, 1), cancellationToken) == 0) return null;
+        await stream.ReadExactlyAsync(header.AsMemory(1), cancellationToken);
+        int length = BinaryPrimitives.ReadInt32BigEndian(header);
+        if (length <= 0 || length > MaxMessageSize) throw new InvalidDataException("Invalid message length.");
+        byte[] payload = new byte[length];
+        await stream.ReadExactlyAsync(payload, cancellationToken);
+        try
+        {
+            return JsonSerializer.Deserialize<T>(payload, JsonOptions) ?? throw new InvalidDataException("Null message.");
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("Invalid JSON message.", exception);
+        }
+    }
+}
