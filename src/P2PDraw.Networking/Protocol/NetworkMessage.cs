@@ -1,7 +1,7 @@
+using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using P2PDraw.Core.Operations;
 using P2PDraw.Core.Sync;
-using System.Text.Json.Serialization;
-using System.Collections.Immutable;
 
 namespace P2PDraw.Networking.Protocol;
 

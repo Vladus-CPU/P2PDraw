@@ -16,7 +16,11 @@ public static class MessageFraming
     public static async Task WriteAsync<T>(Stream stream, T message, CancellationToken cancellationToken = default) where T : class
     {
         byte[] payload = JsonSerializer.SerializeToUtf8Bytes(message, JsonOptions);
-        if (payload.Length == 0 || payload.Length > MaxMessageSize) throw new InvalidDataException("Message exceeds the size limit.");
+        if (payload.Length == 0 || payload.Length > MaxMessageSize)
+        {
+            throw new InvalidDataException("Message exceeds the size limit.");
+        }
+
         byte[] header = new byte[4];
         BinaryPrimitives.WriteInt32BigEndian(header, payload.Length);
         await stream.WriteAsync(header, cancellationToken);
@@ -27,15 +31,28 @@ public static class MessageFraming
     {
         byte[] header = new byte[4];
         int bytesRead = await stream.ReadAsync(header.AsMemory(0, 1), cancellationToken);
-        if (bytesRead == 0) return null;
+        if (bytesRead == 0)
+        {
+            return null;
+        }
+
         await stream.ReadExactlyAsync(header.AsMemory(1), cancellationToken);
         int length = BinaryPrimitives.ReadInt32BigEndian(header);
-        if (length <= 0 || length > MaxMessageSize) throw new InvalidDataException("Invalid message length.");
+        if (length <= 0 || length > MaxMessageSize)
+        {
+            throw new InvalidDataException("Invalid message length.");
+        }
+
         byte[] payload = new byte[length];
         await stream.ReadExactlyAsync(payload, cancellationToken);
         try
         {
-            return JsonSerializer.Deserialize<T>(payload, JsonOptions) ?? throw new InvalidDataException("Null message.");
+            var message = JsonSerializer.Deserialize<T>(payload, JsonOptions);
+            if (message is null)
+            {
+                throw new InvalidDataException("Null message.");
+            }
+            return message;
         }
         catch (JsonException exception)
         {

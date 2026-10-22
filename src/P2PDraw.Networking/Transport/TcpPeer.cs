@@ -1,23 +1,23 @@
-using P2PDraw.Core.Operations;
-using P2PDraw.Core.Sync;
-using P2PDraw.Networking.Protocol;
 using System.Collections.Immutable;
 using System.Net;
 using System.Net.Sockets;
+using P2PDraw.Core.Operations;
+using P2PDraw.Core.Sync;
+using P2PDraw.Networking.Protocol;
 
 namespace P2PDraw.Networking.Transport;
 
 public sealed class TcpPeer : IAsyncDisposable
 {
     public const int ProtocolVersion = 1;
-    private readonly object gate = new();
+    private readonly object stateLock = new();
     private readonly SyncEngine engine;
     private readonly CancellationTokenSource lifetime = new();
     private readonly Dictionary<Guid, Connection> connections = [];
-    private readonly HashSet<Task> tasks = [];
+    private readonly HashSet<Task> backgroundTasks = [];
     private readonly Dictionary<(string Host, int Port), Guid> reconnectTargets = [];
     private readonly Task reconnectTask;
-    private bool paused;
+    private bool isManuallyDisconnected;
     private TcpListener? listener;
     private Task? acceptTask;
 
@@ -26,7 +26,13 @@ public sealed class TcpPeer : IAsyncDisposable
     public int Port => (listener?.LocalEndpoint as IPEndPoint)?.Port ?? 0;
     public int ConnectionCount
     {
-        get { lock (gate) return connections.Count; }
+        get
+        {
+            lock (stateLock)
+            {
+                return connections.Count;
+            }
+        }
     }
 
     public TcpPeer(SyncEngine engine)
@@ -38,7 +44,11 @@ public sealed class TcpPeer : IAsyncDisposable
     public void Start(int port, IPAddress? address = null)
     {
         ObjectDisposedException.ThrowIf(lifetime.IsCancellationRequested, this);
-        if (listener is not null) throw new InvalidOperationException("Listener already started.");
+        if (listener is not null)
+        {
+            throw new InvalidOperationException("Listener already started.");
+        }
+
         listener = new TcpListener(address ?? IPAddress.Any, port);
         listener.Start();
         acceptTask = AcceptAsync();
@@ -46,11 +56,15 @@ public sealed class TcpPeer : IAsyncDisposable
 
     public Task<Guid> ConnectAsync(string host, int port, CancellationToken cancellationToken = default)
     {
-        lock (gate) paused = false;
+        lock (stateLock)
+        {
+            isManuallyDisconnected = false;
+        }
+
         return ConnectCoreAsync(host, port, Guid.Empty, cancellationToken);
     }
 
-    private async Task<Guid> ConnectCoreAsync(string host, int port, Guid expectedPeer, CancellationToken cancellationToken)
+    private async Task<Guid> ConnectCoreAsync(string host, int port, Guid expectedPeerId, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token, cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(5));
@@ -62,12 +76,27 @@ public sealed class TcpPeer : IAsyncDisposable
             var hello = new HelloMessage(engine.PeerId, engine.SessionId, ProtocolVersion);
             await MessageFraming.WriteAsync<NetworkMessage>(stream, hello, timeout.Token);
             var response = await MessageFraming.ReadAsync<NetworkMessage>(stream, timeout.Token);
-            if (response is not WelcomeMessage welcome) throw new InvalidDataException("Expected WELCOME.");
+            if (response is not WelcomeMessage welcome)
+            {
+                throw new InvalidDataException("Expected WELCOME.");
+            }
+
             ValidateHello(welcome.PeerId, welcome.SessionId, welcome.ProtocolVersion);
-            if (expectedPeer != Guid.Empty && welcome.PeerId != expectedPeer) throw new InvalidDataException("Reconnected endpoint has a different PeerId.");
+            if (expectedPeerId != Guid.Empty && welcome.PeerId != expectedPeerId)
+            {
+                throw new InvalidDataException("Reconnected endpoint has a different PeerId.");
+            }
+
             var connection = new Connection(client, welcome.PeerId, true);
-            if (Register(connection, (host, port), expectedPeer)) Track(RunConnectionAsync(connection));
-            else client.Dispose();
+            if (Register(connection, (host, port), expectedPeerId))
+            {
+                TrackBackgroundTask(RunConnectionAsync(connection));
+            }
+            else
+            {
+                client.Dispose();
+            }
+
             return welcome.PeerId;
         }
         catch
@@ -81,7 +110,11 @@ public sealed class TcpPeer : IAsyncDisposable
     {
         operation.Validate();
         Connection[] targets;
-        lock (gate) targets = connections.Values.ToArray();
+        lock (stateLock)
+        {
+            targets = connections.Values.ToArray();
+        }
+
         var sendingTasks = new List<Task>();
         foreach (var connection in targets)
         {
@@ -92,14 +125,18 @@ public sealed class TcpPeer : IAsyncDisposable
 
     public void DisconnectAll(bool reconnect = false)
     {
-        lock (gate)
+        lock (stateLock)
         {
             if (!reconnect)
             {
-                paused = true;
+                isManuallyDisconnected = true;
                 reconnectTargets.Clear();
             }
-            foreach (var connection in connections.Values) connection.Client.Dispose();
+            foreach (var connection in connections.Values)
+            {
+                connection.Client.Dispose();
+            }
+
             connections.Clear();
         }
         Changed?.Invoke();
@@ -113,12 +150,15 @@ public sealed class TcpPeer : IAsyncDisposable
             {
                 var client = await listener!.AcceptTcpClientAsync(lifetime.Token);
                 client.NoDelay = true;
-                Track(AcceptConnectionAsync(client));
+                TrackBackgroundTask(AcceptConnectionAsync(client));
             }
         }
         catch (Exception exception) when (IsConnectionError(exception))
         {
-            if (!lifetime.IsCancellationRequested) Error?.Invoke(exception.Message);
+            if (!lifetime.IsCancellationRequested)
+            {
+                Error?.Invoke(exception.Message);
+            }
         }
     }
 
@@ -130,20 +170,33 @@ public sealed class TcpPeer : IAsyncDisposable
             timeout.CancelAfter(TimeSpan.FromSeconds(5));
             var stream = client.GetStream();
             var message = await MessageFraming.ReadAsync<NetworkMessage>(stream, timeout.Token);
-            if (message is not HelloMessage hello) throw new InvalidDataException("Expected HELLO.");
-            ValidateHello(hello.PeerId, hello.SessionId, hello.ProtocolVersion);
-            lock (gate)
+            if (message is not HelloMessage hello)
             {
-                if (paused) return;
+                throw new InvalidDataException("Expected HELLO.");
+            }
+
+            ValidateHello(hello.PeerId, hello.SessionId, hello.ProtocolVersion);
+            lock (stateLock)
+            {
+                if (isManuallyDisconnected)
+                {
+                    return;
+                }
             }
             var welcome = new WelcomeMessage(engine.PeerId, engine.SessionId, ProtocolVersion);
             await MessageFraming.WriteAsync<NetworkMessage>(stream, welcome, timeout.Token);
             var connection = new Connection(client, hello.PeerId, false);
-            if (Register(connection)) await RunConnectionAsync(connection);
+            if (Register(connection))
+            {
+                await RunConnectionAsync(connection);
+            }
         }
         catch (Exception exception) when (IsConnectionError(exception))
         {
-            if (!lifetime.IsCancellationRequested) Error?.Invoke(exception.Message);
+            if (!lifetime.IsCancellationRequested)
+            {
+                Error?.Invoke(exception.Message);
+            }
         }
         finally
         {
@@ -151,21 +204,34 @@ public sealed class TcpPeer : IAsyncDisposable
         }
     }
 
-    private bool Register(Connection connection, (string Host, int Port)? target = null, Guid expectedPeer = default)
+    private bool Register(Connection connection, (string Host, int Port)? target = null, Guid expectedPeerId = default)
     {
-        lock (gate)
+        lock (stateLock)
         {
-            if (lifetime.IsCancellationRequested || paused) return false;
-            if (target is { } endpoint)
+            if (lifetime.IsCancellationRequested || isManuallyDisconnected)
             {
-                if (expectedPeer != Guid.Empty && reconnectTargets.GetValueOrDefault(endpoint) != expectedPeer) return false;
+                return false;
+            }
+
+            if (target.HasValue)
+            {
+                var endpoint = target.Value;
+                if (expectedPeerId != Guid.Empty && reconnectTargets.GetValueOrDefault(endpoint) != expectedPeerId)
+                {
+                    return false;
+                }
+
                 reconnectTargets[endpoint] = connection.PeerId;
             }
             if (connections.TryGetValue(connection.PeerId, out var existing))
             {
                 // Both ends keep the same direction when they connect simultaneously.
                 bool preferOutgoing = engine.PeerId.CompareTo(connection.PeerId) < 0;
-                if (existing.Outgoing == preferOutgoing || connection.Outgoing != preferOutgoing) return false;
+                if (existing.IsOutgoing == preferOutgoing || connection.IsOutgoing != preferOutgoing)
+                {
+                    return false;
+                }
+
                 existing.Client.Dispose();
             }
             connections[connection.PeerId] = connection;
@@ -176,10 +242,10 @@ public sealed class TcpPeer : IAsyncDisposable
 
     private async Task RunConnectionAsync(Connection connection)
     {
-        var reading = ReadAsync(connection);
-        connection.RepairRequested = true;
+        var readingTask = ReadAsync(connection);
+        connection.IsSyncPending = true;
         await SendAsync(connection, CreateSyncRequest(), lifetime.Token);
-        await reading;
+        await readingTask;
     }
 
     private SyncRequestMessage CreateSyncRequest()
@@ -197,12 +263,16 @@ public sealed class TcpPeer : IAsyncDisposable
             var snapshotOperationIds = snapshot.Operations.Select(operation => operation.Stamp.OperationId);
             var missingOperations = engine.GetMissingOperations(snapshotOperationIds);
             foreach (var operation in missingOperations)
+            {
                 await SendAsync(connection, new OperationMessage(operation), lifetime.Token);
+            }
         }
         else
         {
             foreach (var operation in engine.GetMissingOperations(request.KnownOperationIds))
+            {
                 await SendAsync(connection, new OperationMessage(operation), lifetime.Token);
+            }
         }
         await SendAsync(connection, new SyncCompleteMessage(), lifetime.Token);
     }
@@ -214,27 +284,47 @@ public sealed class TcpPeer : IAsyncDisposable
             while (true)
             {
                 var message = await MessageFraming.ReadAsync<NetworkMessage>(connection.Client.GetStream(), lifetime.Token);
-                if (message is null) break;
+                if (message is null)
+                {
+                    break;
+                }
+
                 switch (message)
                 {
-                    case OperationMessage { Operation: not null } received:
-                        if (engine.Receive(received.Operation)) Changed?.Invoke();
-                        if (!connection.RepairRequested && !engine.GetPendingStrokeIds().IsEmpty)
+                    case OperationMessage operationMessage:
+                        if (operationMessage.Operation is null)
                         {
-                            connection.RepairRequested = true;
-                            Track(SendAsync(connection, CreateSyncRequest(), lifetime.Token));
+                            throw new InvalidDataException("Unexpected or invalid message.");
+                        }
+                        if (engine.Receive(operationMessage.Operation))
+                        {
+                            Changed?.Invoke();
+                        }
+
+                        if (!connection.IsSyncPending && !engine.GetPendingStrokeIds().IsEmpty)
+                        {
+                            connection.IsSyncPending = true;
+                            TrackBackgroundTask(SendAsync(connection, CreateSyncRequest(), lifetime.Token));
                         }
                         break;
-                    case SyncRequestMessage request when !request.KnownOperationIds.IsDefault && request.KnownOperationIds.All(id => id != Guid.Empty):
-                        // Send in parallel with reading so two large snapshots cannot block each other.
-                        Track(RespondToSyncAsync(connection, request));
+                    case SyncRequestMessage request:
+                        if (request.KnownOperationIds.IsDefault || request.KnownOperationIds.Any(operationId => operationId == Guid.Empty))
+                        {
+                            throw new InvalidDataException("Unexpected or invalid message.");
+                        }
+                        // Send in parallel with readingTask so two large snapshots cannot block each other.
+                        TrackBackgroundTask(RespondToSyncAsync(connection, request));
                         break;
-                    case SnapshotMessage { Snapshot: not null } received:
-                        engine.MergeSnapshot(received.Snapshot);
+                    case SnapshotMessage snapshotMessage:
+                        if (snapshotMessage.Snapshot is null)
+                        {
+                            throw new InvalidDataException("Unexpected or invalid message.");
+                        }
+                        engine.MergeSnapshot(snapshotMessage.Snapshot);
                         Changed?.Invoke();
                         break;
                     case SyncCompleteMessage:
-                        connection.RepairRequested = false;
+                        connection.IsSyncPending = false;
                         break;
                     default:
                         throw new InvalidDataException("Unexpected or invalid message.");
@@ -243,14 +333,20 @@ public sealed class TcpPeer : IAsyncDisposable
         }
         catch (Exception exception) when (IsConnectionError(exception))
         {
-            if (!lifetime.IsCancellationRequested) Error?.Invoke(exception.Message);
+            if (!lifetime.IsCancellationRequested)
+            {
+                Error?.Invoke(exception.Message);
+            }
         }
         finally
         {
             connection.Client.Dispose();
-            lock (gate)
+            lock (stateLock)
             {
-                if (connections.GetValueOrDefault(connection.PeerId) == connection) connections.Remove(connection.PeerId);
+                if (connections.GetValueOrDefault(connection.PeerId) == connection)
+                {
+                    connections.Remove(connection.PeerId);
+                }
             }
             Changed?.Invoke();
         }
@@ -267,15 +363,29 @@ public sealed class TcpPeer : IAsyncDisposable
         catch (Exception exception) when (IsConnectionError(exception))
         {
             connection.Client.Dispose();
-            if (!lifetime.IsCancellationRequested) Error?.Invoke(exception.Message);
+            if (!lifetime.IsCancellationRequested)
+            {
+                Error?.Invoke(exception.Message);
+            }
         }
     }
 
     private void ValidateHello(Guid peerId, Guid sessionId, int version)
     {
-        if (peerId == Guid.Empty || peerId == engine.PeerId) throw new InvalidDataException("Invalid or duplicate PeerId.");
-        if (sessionId != engine.SessionId) throw new InvalidDataException("SessionId does not match.");
-        if (version != ProtocolVersion) throw new InvalidDataException("Protocol version does not match.");
+        if (peerId == Guid.Empty || peerId == engine.PeerId)
+        {
+            throw new InvalidDataException("Invalid or duplicate PeerId.");
+        }
+
+        if (sessionId != engine.SessionId)
+        {
+            throw new InvalidDataException("SessionId does not match.");
+        }
+
+        if (version != ProtocolVersion)
+        {
+            throw new InvalidDataException("Protocol version does not match.");
+        }
     }
 
     private async Task ReconnectAsync()
@@ -286,64 +396,96 @@ public sealed class TcpPeer : IAsyncDisposable
             while (await timer.WaitForNextTickAsync(lifetime.Token))
             {
                 var targets = new List<KeyValuePair<(string Host, int Port), Guid>>();
-                lock (gate)
+                lock (stateLock)
                 {
                     foreach (var target in reconnectTargets)
                     {
-                        if (!connections.ContainsKey(target.Value)) targets.Add(target);
+                        if (!connections.ContainsKey(target.Value))
+                        {
+                            targets.Add(target);
+                        }
                     }
                 }
                 foreach (var target in targets)
                 {
                     var endpoint = target.Key;
-                    Guid expectedPeer = target.Value;
+                    Guid expectedPeerId = target.Value;
                     try
                     {
-                        await ConnectCoreAsync(endpoint.Host, endpoint.Port, expectedPeer, lifetime.Token);
+                        await ConnectCoreAsync(endpoint.Host, endpoint.Port, expectedPeerId, lifetime.Token);
                     }
-                    catch (Exception exception) when (IsConnectionError(exception)) { }
+                    catch (Exception exception) when (IsConnectionError(exception))
+                    {
+                    }
                 }
             }
         }
-        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+        {
+        }
     }
 
-    private void Track(Task task)
+    private void TrackBackgroundTask(Task task)
     {
-        lock (gate) tasks.Add(task);
+        lock (stateLock)
+        {
+            backgroundTasks.Add(task);
+        }
+
         _ = task.ContinueWith(completed =>
         {
-            lock (gate) tasks.Remove(completed);
+            lock (stateLock)
+            {
+                backgroundTasks.Remove(completed);
+            }
         }, TaskScheduler.Default);
     }
 
-    private static bool IsConnectionError(Exception exception) => exception is IOException or SocketException or OperationCanceledException or ObjectDisposedException or ArgumentException;
+    private static bool IsConnectionError(Exception exception)
+    {
+        return exception is IOException || exception is SocketException || exception is OperationCanceledException
+            || exception is ObjectDisposedException || exception is ArgumentException;
+    }
 
     public async ValueTask DisposeAsync()
     {
         await lifetime.CancelAsync();
         listener?.Stop();
         DisconnectAll();
-        if (acceptTask is not null) await acceptTask;
+        if (acceptTask is not null)
+        {
+            await acceptTask;
+        }
+
         await reconnectTask;
         Task[] pending;
-        lock (gate) pending = tasks.ToArray();
+        lock (stateLock)
+        {
+            pending = backgroundTasks.ToArray();
+        }
+
         await Task.WhenAll(pending);
     }
 
     private sealed class Connection(TcpClient client, Guid peerId, bool outgoing)
     {
-        private readonly SemaphoreSlim sendGate = new(1, 1);
+        private readonly SemaphoreSlim sendLock = new(1, 1);
         public TcpClient Client { get; } = client;
         public Guid PeerId { get; } = peerId;
-        public bool Outgoing { get; } = outgoing;
-        public bool RepairRequested { get; set; }
+        public bool IsOutgoing { get; } = outgoing;
+        public bool IsSyncPending { get; set; }
 
         public async Task SendAsync(NetworkMessage message, CancellationToken cancellationToken)
         {
-            await sendGate.WaitAsync(cancellationToken);
-            try { await MessageFraming.WriteAsync(Client.GetStream(), message, cancellationToken); }
-            finally { sendGate.Release(); }
+            await sendLock.WaitAsync(cancellationToken);
+            try
+            {
+                await MessageFraming.WriteAsync(Client.GetStream(), message, cancellationToken);
+            }
+            finally
+            {
+                sendLock.Release();
+            }
         }
     }
 }
