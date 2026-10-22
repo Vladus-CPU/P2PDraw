@@ -20,8 +20,12 @@ public class OperationLogTests
     {
         var log = new OperationLog();
         var peer = Guid.NewGuid();
-        StrokeBegin[] operations = Enumerable.Range(1, 3)
-            .Select(i => new StrokeBegin(new(Guid.NewGuid(), peer, i, i), Guid.NewGuid(), 0, 1)).ToArray();
+        var operations = new StrokeBegin[3];
+        for (int i = 0; i < operations.Length; i++)
+        {
+            var stamp = new OperationStamp(Guid.NewGuid(), peer, i + 1, i + 1);
+            operations[i] = new StrokeBegin(stamp, Guid.NewGuid(), 0, 1);
+        }
         foreach (var operation in operations.Reverse()) log.Add(operation);
 
         var missing = log.GetMissingOperations([operations[0].Stamp.OperationId, operations[2].Stamp.OperationId]);

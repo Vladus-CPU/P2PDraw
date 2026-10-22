@@ -17,8 +17,8 @@ public class SyncEngineTests
         engine.EndStroke(begin.StrokeId);
         Assert.True(Assert.Single(engine.GetStrokes()).IsComplete);
         Assert.Equal(2, Assert.Single(engine.GetStrokes()).Points.Length);
-        Assert.Equal(new long[] { 1, 2, 3 }, engine.GetOperations().Select(op => op.Stamp.SequenceNumber));
-        Assert.Equal(3, engine.GetOperations().Select(op => op.Stamp.OperationId).Distinct().Count());
+        Assert.Equal(new long[] { 1, 2, 3 }, engine.GetOperations().Select(operation => operation.Stamp.SequenceNumber));
+        Assert.Equal(3, engine.GetOperations().Select(operation => operation.Stamp.OperationId).Distinct().Count());
         Assert.Equal(3, engine.LamportTime);
     }
 
@@ -38,26 +38,26 @@ public class SyncEngineTests
     public void OfflineClearAndConcurrentDrawingConvergeAfterExchange()
     {
         var session = Guid.NewGuid();
-        var a = new SyncEngine(Guid.NewGuid(), session);
-        var b = new SyncEngine(Guid.NewGuid(), session);
-        var first = a.BeginStroke(0, 2);
-        a.AppendStroke(first.StrokeId, [new(0, 0)]);
-        a.EndStroke(first.StrokeId);
-        foreach (var operation in a.GetOperations()) b.Receive(operation);
+        var firstEngine = new SyncEngine(Guid.NewGuid(), session);
+        var secondEngine = new SyncEngine(Guid.NewGuid(), session);
+        var first = firstEngine.BeginStroke(0, 2);
+        firstEngine.AppendStroke(first.StrokeId, [new(0, 0)]);
+        firstEngine.EndStroke(first.StrokeId);
+        foreach (var operation in firstEngine.GetOperations()) secondEngine.Receive(operation);
 
-        a.ClearCanvas();
-        var concurrent = b.BeginStroke(0, 3);
-        b.AppendStroke(concurrent.StrokeId, [new(2, 3)]);
-        b.EndStroke(concurrent.StrokeId);
-        var toA = b.GetMissingOperations(a.GetOperations().Select(op => op.Stamp.OperationId));
-        var toB = a.GetMissingOperations(b.GetOperations().Select(op => op.Stamp.OperationId));
-        foreach (var operation in toA.Reverse()) a.Receive(operation);
-        foreach (var operation in toB.Reverse()) b.Receive(operation);
+        firstEngine.ClearCanvas();
+        var concurrent = secondEngine.BeginStroke(0, 3);
+        secondEngine.AppendStroke(concurrent.StrokeId, [new(2, 3)]);
+        secondEngine.EndStroke(concurrent.StrokeId);
+        var toA = secondEngine.GetMissingOperations(firstEngine.GetOperations().Select(operation => operation.Stamp.OperationId));
+        var toB = firstEngine.GetMissingOperations(secondEngine.GetOperations().Select(operation => operation.Stamp.OperationId));
+        foreach (var operation in toA.Reverse()) firstEngine.Receive(operation);
+        foreach (var operation in toB.Reverse()) secondEngine.Receive(operation);
 
-        Assert.Equal(concurrent.StrokeId, Assert.Single(a.GetStrokes()).StrokeId);
-        Assert.Equal(JsonSerializer.Serialize(a.GetStrokes()), JsonSerializer.Serialize(b.GetStrokes()));
-        Assert.Equal(a.GetTombstones(), b.GetTombstones());
-        Assert.Equal(a.GetOperations(), b.GetOperations());
+        Assert.Equal(concurrent.StrokeId, Assert.Single(firstEngine.GetStrokes()).StrokeId);
+        Assert.Equal(JsonSerializer.Serialize(firstEngine.GetStrokes()), JsonSerializer.Serialize(secondEngine.GetStrokes()));
+        Assert.Equal(firstEngine.GetTombstones(), secondEngine.GetTombstones());
+        Assert.Equal(firstEngine.GetOperations(), secondEngine.GetOperations());
     }
 
     [Fact]
@@ -77,8 +77,13 @@ public class SyncEngineTests
     public async Task ConcurrentLocalCallsKeepUniqueSequences()
     {
         var engine = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
-        await Task.WhenAll(Enumerable.Range(0, 100).Select(_ => Task.Run(() => engine.BeginStroke(0, 1))));
+        var drawingTasks = new List<Task>();
+        for (int i = 0; i < 100; i++) drawingTasks.Add(Task.Run(() => engine.BeginStroke(0, 1)));
+        await Task.WhenAll(drawingTasks);
+
         Assert.Equal(100, engine.GetStrokes().Length);
-        Assert.Equal(Enumerable.Range(1, 100).Select(i => (long)i), engine.GetOperations().Select(op => op.Stamp.SequenceNumber));
+        var expectedSequences = Enumerable.Range(1, 100).Select(number => (long)number);
+        var actualSequences = engine.GetOperations().Select(operation => operation.Stamp.SequenceNumber);
+        Assert.Equal(expectedSequences, actualSequences);
     }
 }

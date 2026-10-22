@@ -15,7 +15,8 @@ public class SnapshotTests
         var visible = source.BeginStroke(0xFF112233, 3);
         source.AppendStroke(visible.StrokeId, [new(1, 2), new(3, 4)]);
         source.EndStroke(visible.StrokeId);
-        var snapshot = JsonSerializer.Deserialize<Snapshot>(JsonSerializer.Serialize(source.CreateSnapshot()))!;
+        string snapshotJson = JsonSerializer.Serialize(source.CreateSnapshot());
+        var snapshot = JsonSerializer.Deserialize<Snapshot>(snapshotJson)!;
         var restored = new SyncEngine(Guid.NewGuid(), source.SessionId);
         restored.MergeSnapshot(snapshot);
         Assert.Equal(JsonSerializer.Serialize(source.GetStrokes()), JsonSerializer.Serialize(restored.GetStrokes()));
@@ -30,18 +31,23 @@ public class SnapshotTests
     public void LocalEditsAndChangesAfterSnapshotArePreserved()
     {
         var session = Guid.NewGuid();
-        var a = new SyncEngine(Guid.NewGuid(), session);
-        var b = new SyncEngine(Guid.NewGuid(), session);
-        var first = a.BeginStroke(0, 1);
-        var snapshot = a.CreateSnapshot();
-        b.BeginStroke(0, 2);
-        a.AppendStroke(first.StrokeId, [new(1, 2)]);
-        a.EndStroke(first.StrokeId);
-        b.MergeSnapshot(snapshot);
-        foreach (var operation in a.GetMissingOperations(b.GetOperations().Select(op => op.Stamp.OperationId))) b.Receive(operation);
-        foreach (var operation in b.GetMissingOperations(a.GetOperations().Select(op => op.Stamp.OperationId))) a.Receive(operation);
-        Assert.Equal(2, b.GetStrokes().Length);
-        Assert.Equal(JsonSerializer.Serialize(a.GetStrokes()), JsonSerializer.Serialize(b.GetStrokes()));
+        var firstEngine = new SyncEngine(Guid.NewGuid(), session);
+        var secondEngine = new SyncEngine(Guid.NewGuid(), session);
+        var first = firstEngine.BeginStroke(0, 1);
+        var snapshot = firstEngine.CreateSnapshot();
+        secondEngine.BeginStroke(0, 2);
+        firstEngine.AppendStroke(first.StrokeId, [new(1, 2)]);
+        firstEngine.EndStroke(first.StrokeId);
+        secondEngine.MergeSnapshot(snapshot);
+        var secondKnownIds = secondEngine.GetOperations().Select(operation => operation.Stamp.OperationId);
+        var missingAtSecond = firstEngine.GetMissingOperations(secondKnownIds);
+        foreach (var operation in missingAtSecond) secondEngine.Receive(operation);
+
+        var firstKnownIds = firstEngine.GetOperations().Select(operation => operation.Stamp.OperationId);
+        var missingAtFirst = secondEngine.GetMissingOperations(firstKnownIds);
+        foreach (var operation in missingAtFirst) firstEngine.Receive(operation);
+        Assert.Equal(2, secondEngine.GetStrokes().Length);
+        Assert.Equal(JsonSerializer.Serialize(firstEngine.GetStrokes()), JsonSerializer.Serialize(secondEngine.GetStrokes()));
         Assert.Empty(snapshot.Strokes[0].Points);
         Assert.False(snapshot.Strokes[0].IsComplete);
     }
@@ -49,16 +55,17 @@ public class SnapshotTests
     [Fact]
     public void PendingAppendSurvivesSnapshotAndResolvesWhenBeginArrives()
     {
-        var a = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
-        var b = new SyncEngine(Guid.NewGuid(), a.SessionId);
-        var source = new SyncEngine(Guid.NewGuid(), a.SessionId);
+        var firstEngine = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
+        var secondEngine = new SyncEngine(Guid.NewGuid(), firstEngine.SessionId);
+        var source = new SyncEngine(Guid.NewGuid(), firstEngine.SessionId);
         var begin = source.BeginStroke(0, 1);
-        a.Receive(source.AppendStroke(begin.StrokeId, [new(2, 3)]));
-        b.MergeSnapshot(a.CreateSnapshot());
-        Assert.Equal(begin.StrokeId, Assert.Single(b.GetPendingStrokeIds()));
-        b.Receive(begin);
-        Assert.Single(Assert.Single(b.GetStrokes()).Points);
-        Assert.Empty(b.GetPendingStrokeIds());
+        firstEngine.Receive(source.AppendStroke(begin.StrokeId, [new(2, 3)]));
+        secondEngine.MergeSnapshot(firstEngine.CreateSnapshot());
+        Assert.Equal(begin.StrokeId, Assert.Single(secondEngine.GetPendingStrokeIds()));
+        secondEngine.Receive(begin);
+        var restoredStroke = Assert.Single(secondEngine.GetStrokes());
+        Assert.Single(restoredStroke.Points);
+        Assert.Empty(secondEngine.GetPendingStrokeIds());
     }
 
     [Fact]

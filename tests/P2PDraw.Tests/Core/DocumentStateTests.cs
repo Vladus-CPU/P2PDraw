@@ -31,7 +31,9 @@ public class DocumentStateTests
         {
             var actual = new DocumentState();
             var random = new Random(seed);
-            foreach (var operation in operations.Concat(operations).OrderBy(_ => random.Next())) actual.Apply(operation);
+            var duplicatedOperations = operations.Concat(operations).ToArray();
+            var deliveryOrder = duplicatedOperations.OrderBy(_ => random.Next());
+            foreach (var operation in deliveryOrder) actual.Apply(operation);
             Assert.Equal(Normalize(expected), Normalize(actual));
             Assert.Equal(operations.Length, actual.OperationCount);
             Assert.All(actual.GetStrokes(), stroke => Assert.True(stroke.IsComplete));
@@ -91,9 +93,12 @@ public class DocumentStateTests
         {
             var document = new DocumentState();
             var random = new Random(seed);
-            foreach (var operation in operations.OrderBy(_ => random.Next())) document.Apply(operation);
-            Assert.Equal(concurrentId, Assert.Single(document.GetStrokes()).StrokeId);
-            Assert.True(Assert.Single(document.GetStrokes()).IsComplete);
+            var deliveryOrder = operations.OrderBy(_ => random.Next());
+            foreach (var operation in deliveryOrder) document.Apply(operation);
+
+            var survivingStroke = Assert.Single(document.GetStrokes());
+            Assert.Equal(concurrentId, survivingStroke.StrokeId);
+            Assert.True(survivingStroke.IsComplete);
             Assert.Equal(knownId, Assert.Single(document.GetTombstones()));
             Assert.Empty(document.GetPendingStrokeIds());
         }
