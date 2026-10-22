@@ -1,10 +1,10 @@
+using System.Net;
+using System.Net.Sockets;
+using System.Text.Json;
 using P2PDraw.Core.Operations;
 using P2PDraw.Core.Sync;
 using P2PDraw.Networking.Protocol;
 using P2PDraw.Networking.Transport;
-using System.Net;
-using System.Net.Sockets;
-using System.Text.Json;
 using Xunit;
 
 namespace P2PDraw.Tests.Networking;
@@ -16,7 +16,10 @@ public class TcpPeerTests
         var cancellationToken = TestContext.Current.CancellationToken;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(8));
-        while (!condition()) await Task.Delay(10, timeout.Token);
+        while (!condition())
+        {
+            await Task.Delay(10, timeout.Token);
+        }
     }
 
     [Fact]
@@ -29,7 +32,8 @@ public class TcpPeerTests
         using var client = new TcpClient();
         await client.ConnectAsync(IPAddress.Loopback, server.Port, cancellationToken);
         var stream = client.GetStream();
-        await MessageFraming.WriteAsync<NetworkMessage>(stream, new HelloMessage(Guid.NewGuid(), engine.SessionId, TcpPeer.ProtocolVersion), cancellationToken);
+        var hello = new HelloMessage(Guid.NewGuid(), engine.SessionId, TcpPeer.ProtocolVersion);
+        await MessageFraming.WriteAsync<NetworkMessage>(stream, hello, cancellationToken);
         Assert.IsType<WelcomeMessage>(await MessageFraming.ReadAsync<NetworkMessage>(stream, cancellationToken));
         await WaitUntilAsync(() => server.ConnectionCount == 1);
         var invalidOperation = new StrokeBegin(default, Guid.NewGuid(), 0, 1);
@@ -37,8 +41,8 @@ public class TcpPeerTests
         await WaitUntilAsync(() => server.ConnectionCount == 0);
         Assert.Empty(engine.GetOperations());
         Assert.Empty(engine.GetStrokes());
-        await using var valid = new TcpPeer(new SyncEngine(Guid.NewGuid(), engine.SessionId));
-        await valid.ConnectAsync("127.0.0.1", server.Port, cancellationToken);
+        await using var validPeer = new TcpPeer(new SyncEngine(Guid.NewGuid(), engine.SessionId));
+        await validPeer.ConnectAsync("127.0.0.1", server.Port, cancellationToken);
         await WaitUntilAsync(() => server.ConnectionCount == 1);
     }
 
@@ -56,21 +60,31 @@ public class TcpPeerTests
         listener.Start();
         try
         {
-            var connecting = peer.ConnectAsync("127.0.0.1", ((IPEndPoint)listener.LocalEndpoint).Port, cancellationToken);
+            var connectionTask = peer.ConnectAsync("127.0.0.1", ((IPEndPoint)listener.LocalEndpoint).Port, cancellationToken);
             using var client = await listener.AcceptTcpClientAsync(cancellationToken);
             var stream = client.GetStream();
             Assert.IsType<HelloMessage>(await MessageFraming.ReadAsync<NetworkMessage>(stream, cancellationToken));
             Guid peerId = Guid.Empty;
-            if (kind == "self") peerId = engine.PeerId;
-            else if (kind != "empty") peerId = Guid.NewGuid();
+            if (kind == "self")
+            {
+                peerId = engine.PeerId;
+            }
+            else if (kind != "empty")
+            {
+                peerId = Guid.NewGuid();
+            }
+
             Guid sessionId = kind == "session" ? Guid.NewGuid() : engine.SessionId;
             int version = kind == "version" ? 999 : TcpPeer.ProtocolVersion;
             var welcome = new WelcomeMessage(peerId, sessionId, version);
             await MessageFraming.WriteAsync<NetworkMessage>(stream, welcome, cancellationToken);
-            await Assert.ThrowsAsync<InvalidDataException>(() => connecting);
+            await Assert.ThrowsAsync<InvalidDataException>(() => connectionTask);
             Assert.Equal(0, peer.ConnectionCount);
         }
-        finally { listener.Stop(); }
+        finally
+        {
+            listener.Stop();
+        }
     }
 
     [Fact]
@@ -190,16 +204,27 @@ public class TcpPeerTests
         await MessageFraming.WriteAsync<NetworkMessage>(stream, new HelloMessage(Guid.NewGuid(), engine.SessionId, TcpPeer.ProtocolVersion), timeout.Token);
         Assert.IsType<WelcomeMessage>(await MessageFraming.ReadAsync<NetworkMessage>(stream, timeout.Token));
         await MessageFraming.WriteAsync<NetworkMessage>(stream, new SyncRequestMessage([begin.Stamp.OperationId, end.Stamp.OperationId]), timeout.Token);
-        var received = new List<Operation>();
+        var receivedOperations = new List<Operation>();
         while (true)
         {
             var message = await MessageFraming.ReadAsync<NetworkMessage>(stream, timeout.Token);
-            if (message is null) break;
-            if (message is SyncCompleteMessage) break;
+            if (message is null)
+            {
+                break;
+            }
+
+            if (message is SyncCompleteMessage)
+            {
+                break;
+            }
+
             Assert.IsNotType<SnapshotMessage>(message);
-            if (message is OperationMessage operation) received.Add(operation.Operation);
+            if (message is OperationMessage operation)
+            {
+                receivedOperations.Add(operation.Operation);
+            }
         }
-        Assert.Equal(append.Stamp.OperationId, Assert.Single(received).Stamp.OperationId);
+        Assert.Equal(append.Stamp.OperationId, Assert.Single(receivedOperations).Stamp.OperationId);
     }
 
     [Fact]
@@ -225,8 +250,16 @@ public class TcpPeerTests
         Operation[] secondOperations = [secondBegin, secondAppend, secondEnd];
 
         var sendingTasks = new List<Task>();
-        foreach (var operation in firstOperations.Reverse()) sendingTasks.Add(firstPeer.SendOperationAsync(operation, cancellationToken));
-        foreach (var operation in secondOperations.Reverse()) sendingTasks.Add(secondPeer.SendOperationAsync(operation, cancellationToken));
+        foreach (var operation in firstOperations.Reverse())
+        {
+            sendingTasks.Add(firstPeer.SendOperationAsync(operation, cancellationToken));
+        }
+
+        foreach (var operation in secondOperations.Reverse())
+        {
+            sendingTasks.Add(secondPeer.SendOperationAsync(operation, cancellationToken));
+        }
+
         await Task.WhenAll(sendingTasks);
         await WaitUntilAsync(() => firstEngine.GetOperations().Length == 6 && secondEngine.GetOperations().Length == 6);
         await firstPeer.SendOperationAsync(firstBegin, cancellationToken);
@@ -257,8 +290,15 @@ public class TcpPeerTests
         using var client = new TcpClient();
         await client.ConnectAsync(IPAddress.Loopback, peer.Port, cancellationToken);
         Guid peerId = Guid.Empty;
-        if (kind == "self") peerId = engine.PeerId;
-        else if (kind != "empty") peerId = Guid.NewGuid();
+        if (kind == "self")
+        {
+            peerId = engine.PeerId;
+        }
+        else if (kind != "empty")
+        {
+            peerId = Guid.NewGuid();
+        }
+
         Guid sessionId = kind == "session" ? Guid.NewGuid() : engine.SessionId;
         int version = kind == "version" ? 999 : TcpPeer.ProtocolVersion;
         var hello = new HelloMessage(peerId, sessionId, version);
@@ -300,10 +340,10 @@ public class TcpPeerTests
         var session = Guid.NewGuid();
         await using var server = new TcpPeer(new SyncEngine(Guid.NewGuid(), session));
         server.Start(0, IPAddress.Loopback);
-        using (var broken = new TcpClient())
+        using (var brokenClient = new TcpClient())
         {
-            await broken.ConnectAsync(IPAddress.Loopback, server.Port, cancellationToken);
-            await broken.GetStream().WriteAsync(new byte[] { 0, 0 }, cancellationToken);
+            await brokenClient.ConnectAsync(IPAddress.Loopback, server.Port, cancellationToken);
+            await brokenClient.GetStream().WriteAsync(new byte[] { 0, 0 }, cancellationToken);
         }
         await using var client = new TcpPeer(new SyncEngine(Guid.NewGuid(), session));
         await client.ConnectAsync("127.0.0.1", server.Port, cancellationToken);

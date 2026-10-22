@@ -26,7 +26,10 @@ public class OperationLogTests
             var stamp = new OperationStamp(Guid.NewGuid(), peer, i + 1, i + 1);
             operations[i] = new StrokeBegin(stamp, Guid.NewGuid(), 0, 1);
         }
-        foreach (var operation in operations.Reverse()) log.Add(operation);
+        foreach (var operation in operations.Reverse())
+        {
+            log.Add(operation);
+        }
 
         var missing = log.GetMissingOperations([operations[0].Stamp.OperationId, operations[2].Stamp.OperationId]);
         Assert.Equal(operations[1], Assert.Single(missing));

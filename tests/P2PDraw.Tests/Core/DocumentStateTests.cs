@@ -1,23 +1,25 @@
+using System.Text.Json;
 using P2PDraw.Core.Models;
 using P2PDraw.Core.Operations;
-using System.Text.Json;
 using Xunit;
 
 namespace P2PDraw.Tests.Core;
 
 public class DocumentStateTests
 {
-    private static Operation[] CreateStroke(Guid peer, Guid id, long firstSequence = 1) =>
+    private static Operation[] CreateStroke(Guid peerId, Guid strokeId, long firstSequence = 1) =>
     [
-        new StrokeBegin(new(Guid.NewGuid(), peer, firstSequence, 1), id, 0xFF112233, 3),
-        new StrokeAppend(new(Guid.NewGuid(), peer, firstSequence + 1, 2), id, 0, [new(1, 2), new(3, 4)]),
-        new StrokeAppend(new(Guid.NewGuid(), peer, firstSequence + 2, 3), id, 2, [new(5, 6)]),
-        new StrokeEnd(new(Guid.NewGuid(), peer, firstSequence + 3, 4), id, 3)
+        new StrokeBegin(new(Guid.NewGuid(), peerId, firstSequence, 1), strokeId, 0xFF112233, 3),
+        new StrokeAppend(new(Guid.NewGuid(), peerId, firstSequence + 1, 2), strokeId, 0, [new(1, 2), new(3, 4)]),
+        new StrokeAppend(new(Guid.NewGuid(), peerId, firstSequence + 2, 3), strokeId, 2, [new(5, 6)]),
+        new StrokeEnd(new(Guid.NewGuid(), peerId, firstSequence + 3, 4), strokeId, 3)
     ];
 
     private static string Normalize(DocumentState document) => JsonSerializer.Serialize(new
     {
-        Strokes = document.GetStrokes(), Tombstones = document.GetTombstones(), Pending = document.GetPendingStrokeIds()
+        Strokes = document.GetStrokes(),
+        Tombstones = document.GetTombstones(),
+        Pending = document.GetPendingStrokeIds()
     });
 
     [Fact]
@@ -25,7 +27,10 @@ public class DocumentStateTests
     {
         Operation[] operations = [.. CreateStroke(Guid.NewGuid(), Guid.NewGuid()), .. CreateStroke(Guid.NewGuid(), Guid.NewGuid())];
         var expected = new DocumentState();
-        foreach (var operation in operations) expected.Apply(operation);
+        foreach (var operation in operations)
+        {
+            expected.Apply(operation);
+        }
 
         for (int seed = 0; seed < 50; seed++)
         {
@@ -33,7 +38,11 @@ public class DocumentStateTests
             var random = new Random(seed);
             var duplicatedOperations = operations.Concat(operations).ToArray();
             var deliveryOrder = duplicatedOperations.OrderBy(_ => random.Next());
-            foreach (var operation in deliveryOrder) actual.Apply(operation);
+            foreach (var operation in deliveryOrder)
+            {
+                actual.Apply(operation);
+            }
+
             Assert.Equal(Normalize(expected), Normalize(actual));
             Assert.Equal(operations.Length, actual.OperationCount);
             Assert.All(actual.GetStrokes(), stroke => Assert.True(stroke.IsComplete));
@@ -43,13 +52,13 @@ public class DocumentStateTests
     [Fact]
     public void AppendAndEndWaitForBeginAndMissingPoints()
     {
-        var id = Guid.NewGuid();
-        var operations = CreateStroke(Guid.NewGuid(), id);
+        var strokeId = Guid.NewGuid();
+        var operations = CreateStroke(Guid.NewGuid(), strokeId);
         var document = new DocumentState();
         document.Apply(operations[2]);
         document.Apply(operations[3]);
         Assert.Empty(document.GetStrokes());
-        Assert.Equal(id, Assert.Single(document.GetPendingStrokeIds()));
+        Assert.Equal(strokeId, Assert.Single(document.GetPendingStrokeIds()));
 
         document.Apply(operations[0]);
         Assert.Empty(Assert.Single(document.GetStrokes()).Points);
@@ -65,18 +74,22 @@ public class DocumentStateTests
     [Fact]
     public void RemovalSurvivesLateMessagesAndRepeatedRemoval()
     {
-        var id = Guid.NewGuid();
-        var peer = Guid.NewGuid();
-        var operations = CreateStroke(peer, id);
-        var remove = new StrokeRemove(new(Guid.NewGuid(), peer, 5, 5), id);
+        var strokeId = Guid.NewGuid();
+        var peerId = Guid.NewGuid();
+        var operations = CreateStroke(peerId, strokeId);
+        var remove = new StrokeRemove(new(Guid.NewGuid(), peerId, 5, 5), strokeId);
         var document = new DocumentState();
         document.Apply(operations[2]);
         document.Apply(remove);
-        foreach (var operation in operations.Reverse()) document.Apply(operation);
-        document.Apply(remove with { Stamp = new(Guid.NewGuid(), peer, 6, 6) });
+        foreach (var operation in operations.Reverse())
+        {
+            document.Apply(operation);
+        }
+
+        document.Apply(remove with { Stamp = new(Guid.NewGuid(), peerId, 6, 6) });
         Assert.Empty(document.GetStrokes());
         Assert.Empty(document.GetPendingStrokeIds());
-        Assert.Equal(id, Assert.Single(document.GetTombstones()));
+        Assert.Equal(strokeId, Assert.Single(document.GetTombstones()));
     }
 
     [Fact]
@@ -94,7 +107,10 @@ public class DocumentStateTests
             var document = new DocumentState();
             var random = new Random(seed);
             var deliveryOrder = operations.OrderBy(_ => random.Next());
-            foreach (var operation in deliveryOrder) document.Apply(operation);
+            foreach (var operation in deliveryOrder)
+            {
+                document.Apply(operation);
+            }
 
             var survivingStroke = Assert.Single(document.GetStrokes());
             Assert.Equal(concurrentId, survivingStroke.StrokeId);
@@ -108,11 +124,11 @@ public class DocumentStateTests
     public void ForeignPeerCannotAppendOrEndAnotherAuthorsStroke()
     {
         var document = new DocumentState();
-        var id = Guid.NewGuid();
-        var peer = Guid.NewGuid();
-        document.Apply(new StrokeBegin(new(Guid.NewGuid(), peer, 1, 1), id, 0, 1));
-        document.Apply(new StrokeAppend(new(Guid.NewGuid(), Guid.NewGuid(), 1, 2), id, 0, [new(9, 9)]));
-        document.Apply(new StrokeEnd(new(Guid.NewGuid(), Guid.NewGuid(), 1, 3), id, 0));
+        var strokeId = Guid.NewGuid();
+        var peerId = Guid.NewGuid();
+        document.Apply(new StrokeBegin(new(Guid.NewGuid(), peerId, 1, 1), strokeId, 0, 1));
+        document.Apply(new StrokeAppend(new(Guid.NewGuid(), Guid.NewGuid(), 1, 2), strokeId, 0, [new(9, 9)]));
+        document.Apply(new StrokeEnd(new(Guid.NewGuid(), Guid.NewGuid(), 1, 3), strokeId, 0));
         var stroke = Assert.Single(document.GetStrokes());
         Assert.Empty(stroke.Points);
         Assert.False(stroke.IsComplete);

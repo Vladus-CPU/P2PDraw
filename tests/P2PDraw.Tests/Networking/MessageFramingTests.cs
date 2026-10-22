@@ -1,5 +1,5 @@
-using P2PDraw.Networking.Protocol;
 using System.Buffers.Binary;
+using P2PDraw.Networking.Protocol;
 using Xunit;
 
 namespace P2PDraw.Tests.Networking;
@@ -11,7 +11,10 @@ public class MessageFramingTests
     private sealed class FragmentedStream(byte[] bytes) : MemoryStream(bytes)
     {
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-            => base.ReadAsync(buffer[..Math.Min(buffer.Length, 1)], cancellationToken);
+        {
+            int bytesToRead = Math.Min(buffer.Length, 1);
+            return base.ReadAsync(buffer[..bytesToRead], cancellationToken);
+        }
     }
 
     [Fact]

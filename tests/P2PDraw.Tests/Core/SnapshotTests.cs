@@ -1,5 +1,5 @@
-using P2PDraw.Core.Sync;
 using System.Text.Json;
+using P2PDraw.Core.Sync;
 using Xunit;
 
 namespace P2PDraw.Tests.Core;
@@ -9,22 +9,26 @@ public class SnapshotTests
     [Fact]
     public void JsonSnapshotRestoresStrokesTombstonesAndDuplicateTracking()
     {
-        var source = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
-        var removed = source.BeginStroke(0, 1);
-        source.RemoveStroke(removed.StrokeId);
-        var visible = source.BeginStroke(0xFF112233, 3);
-        source.AppendStroke(visible.StrokeId, [new(1, 2), new(3, 4)]);
-        source.EndStroke(visible.StrokeId);
-        string snapshotJson = JsonSerializer.Serialize(source.CreateSnapshot());
+        var sourceEngine = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
+        var removed = sourceEngine.BeginStroke(0, 1);
+        sourceEngine.RemoveStroke(removed.StrokeId);
+        var visible = sourceEngine.BeginStroke(0xFF112233, 3);
+        sourceEngine.AppendStroke(visible.StrokeId, [new(1, 2), new(3, 4)]);
+        sourceEngine.EndStroke(visible.StrokeId);
+        string snapshotJson = JsonSerializer.Serialize(sourceEngine.CreateSnapshot());
         var snapshot = JsonSerializer.Deserialize<Snapshot>(snapshotJson)!;
-        var restored = new SyncEngine(Guid.NewGuid(), source.SessionId);
-        restored.MergeSnapshot(snapshot);
-        Assert.Equal(JsonSerializer.Serialize(source.GetStrokes()), JsonSerializer.Serialize(restored.GetStrokes()));
-        Assert.Equal(source.GetTombstones(), restored.GetTombstones());
-        long time = restored.LamportTime;
-        foreach (var operation in snapshot.Operations) Assert.False(restored.Receive(operation));
-        restored.MergeSnapshot(snapshot);
-        Assert.Equal(time, restored.LamportTime);
+        var restoredEngine = new SyncEngine(Guid.NewGuid(), sourceEngine.SessionId);
+        restoredEngine.MergeSnapshot(snapshot);
+        Assert.Equal(JsonSerializer.Serialize(sourceEngine.GetStrokes()), JsonSerializer.Serialize(restoredEngine.GetStrokes()));
+        Assert.Equal(sourceEngine.GetTombstones(), restoredEngine.GetTombstones());
+        long restoredTime = restoredEngine.LamportTime;
+        foreach (var operation in snapshot.Operations)
+        {
+            Assert.False(restoredEngine.Receive(operation));
+        }
+
+        restoredEngine.MergeSnapshot(snapshot);
+        Assert.Equal(restoredTime, restoredEngine.LamportTime);
     }
 
     [Fact]
@@ -41,11 +45,18 @@ public class SnapshotTests
         secondEngine.MergeSnapshot(snapshot);
         var secondKnownIds = secondEngine.GetOperations().Select(operation => operation.Stamp.OperationId);
         var missingAtSecond = firstEngine.GetMissingOperations(secondKnownIds);
-        foreach (var operation in missingAtSecond) secondEngine.Receive(operation);
+        foreach (var operation in missingAtSecond)
+        {
+            secondEngine.Receive(operation);
+        }
 
         var firstKnownIds = firstEngine.GetOperations().Select(operation => operation.Stamp.OperationId);
         var missingAtFirst = secondEngine.GetMissingOperations(firstKnownIds);
-        foreach (var operation in missingAtFirst) firstEngine.Receive(operation);
+        foreach (var operation in missingAtFirst)
+        {
+            firstEngine.Receive(operation);
+        }
+
         Assert.Equal(2, secondEngine.GetStrokes().Length);
         Assert.Equal(JsonSerializer.Serialize(firstEngine.GetStrokes()), JsonSerializer.Serialize(secondEngine.GetStrokes()));
         Assert.Empty(snapshot.Strokes[0].Points);
@@ -57,9 +68,9 @@ public class SnapshotTests
     {
         var firstEngine = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
         var secondEngine = new SyncEngine(Guid.NewGuid(), firstEngine.SessionId);
-        var source = new SyncEngine(Guid.NewGuid(), firstEngine.SessionId);
-        var begin = source.BeginStroke(0, 1);
-        firstEngine.Receive(source.AppendStroke(begin.StrokeId, [new(2, 3)]));
+        var sourceEngine = new SyncEngine(Guid.NewGuid(), firstEngine.SessionId);
+        var begin = sourceEngine.BeginStroke(0, 1);
+        firstEngine.Receive(sourceEngine.AppendStroke(begin.StrokeId, [new(2, 3)]));
         secondEngine.MergeSnapshot(firstEngine.CreateSnapshot());
         Assert.Equal(begin.StrokeId, Assert.Single(secondEngine.GetPendingStrokeIds()));
         secondEngine.Receive(begin);
@@ -74,10 +85,10 @@ public class SnapshotTests
         var engine = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
         engine.BeginStroke(0, 1);
         var snapshot = engine.CreateSnapshot();
-        var other = new SyncEngine(Guid.NewGuid(), engine.SessionId);
-        other.BeginStroke(0, 1);
-        var invalid = other.CreateSnapshot() with { Tombstones = [Guid.NewGuid()] };
-        Assert.Throws<ArgumentException>(() => engine.MergeSnapshot(invalid));
+        var otherEngine = new SyncEngine(Guid.NewGuid(), engine.SessionId);
+        otherEngine.BeginStroke(0, 1);
+        var invalidSnapshot = otherEngine.CreateSnapshot() with { Tombstones = [Guid.NewGuid()] };
+        Assert.Throws<ArgumentException>(() => engine.MergeSnapshot(invalidSnapshot));
         Assert.Throws<ArgumentException>(() => engine.MergeSnapshot(snapshot with { SessionId = Guid.NewGuid() }));
         Assert.Throws<ArgumentException>(() => engine.MergeSnapshot(snapshot with { Operations = default }));
         Assert.Throws<ArgumentException>(() => engine.MergeSnapshot(snapshot with { LamportTime = 0 }));
@@ -89,10 +100,10 @@ public class SnapshotTests
     [Fact]
     public void RestoredAuthorContinuesSequenceAfterSnapshot()
     {
-        var source = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
-        source.BeginStroke(0, 1);
-        var restored = new SyncEngine(source.PeerId, source.SessionId);
-        restored.MergeSnapshot(source.CreateSnapshot());
-        Assert.Equal(2, restored.BeginStroke(0, 1).Stamp.SequenceNumber);
+        var sourceEngine = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
+        sourceEngine.BeginStroke(0, 1);
+        var restoredEngine = new SyncEngine(sourceEngine.PeerId, sourceEngine.SessionId);
+        restoredEngine.MergeSnapshot(sourceEngine.CreateSnapshot());
+        Assert.Equal(2, restoredEngine.BeginStroke(0, 1).Stamp.SequenceNumber);
     }
 }

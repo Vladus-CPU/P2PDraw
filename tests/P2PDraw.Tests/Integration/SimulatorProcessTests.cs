@@ -15,9 +15,9 @@ public class SimulatorProcessTests
         await using var secondProcess = new SimulatorProcess(session);
         await ConnectProcessesAsync(firstProcess, secondProcess);
 
-        var firstDrawing = firstProcess.CommandAsync("draw 1 2 3 4");
-        var secondDrawing = secondProcess.CommandAsync("draw 5 6 7 8");
-        var drawings = await Task.WhenAll(firstDrawing, secondDrawing);
+        var firstDrawingTask = firstProcess.CommandAsync("draw 1 2 3 4");
+        var secondDrawingTask = secondProcess.CommandAsync("draw 5 6 7 8");
+        var drawings = await Task.WhenAll(firstDrawingTask, secondDrawingTask);
         await WaitForStateAsync(firstProcess, secondProcess, 6, 1);
         await firstProcess.CommandAsync("duplicate");
         Guid removedStrokeId = drawings[0].GetProperty("strokeId").GetGuid();
@@ -41,9 +41,9 @@ public class SimulatorProcessTests
 
         await firstProcess.CommandAsync("disconnect");
         await WaitForStateAsync(firstProcess, secondProcess, 3, 0);
-        var clearing = firstProcess.CommandAsync("clear");
-        var drawing = secondProcess.CommandAsync("draw 9 10 11 12");
-        await Task.WhenAll(clearing, drawing);
+        var clearingTask = firstProcess.CommandAsync("clear");
+        var drawingTask = secondProcess.CommandAsync("draw 9 10 11 12");
+        await Task.WhenAll(clearingTask, drawingTask);
         await firstProcess.CommandAsync($"connect 127.0.0.1 {remotePort}");
         var states = await WaitForStateAsync(firstProcess, secondProcess, 7, 1);
 
@@ -64,9 +64,9 @@ public class SimulatorProcessTests
         await WaitForStateAsync(firstProcess, secondProcess, 3, 1);
 
         await firstProcess.CommandAsync("drop");
-        var drawing = firstProcess.CommandAsync("draw 13 14 15 16");
-        var removal = secondProcess.CommandAsync($"remove {existingStrokeId}");
-        await Task.WhenAll(drawing, removal);
+        var drawingTask = firstProcess.CommandAsync("draw 13 14 15 16");
+        var removalTask = secondProcess.CommandAsync($"remove {existingStrokeId}");
+        await Task.WhenAll(drawingTask, removalTask);
         var states = await WaitForStateAsync(firstProcess, secondProcess, 7, 1);
 
         Assert.Equal(states[0].GetRawText(), states[1].GetRawText());
@@ -90,7 +90,8 @@ public class SimulatorProcessTests
         return secondPort;
     }
 
-    private static async Task<JsonElement[]> WaitForStateAsync(SimulatorProcess firstProcess, SimulatorProcess secondProcess, int operationCount, int connections)
+    private static async Task<JsonElement[]> WaitForStateAsync(SimulatorProcess firstProcess, SimulatorProcess secondProcess,
+        int operationCount, int connections)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
@@ -102,9 +103,16 @@ public class SimulatorProcessTests
             {
                 int receivedOperations = state.GetProperty("operations").GetArrayLength();
                 int activeConnections = state.GetProperty("connections").GetInt32();
-                if (receivedOperations != operationCount || activeConnections != connections) bothReady = false;
+                if (receivedOperations != operationCount || activeConnections != connections)
+                {
+                    bothReady = false;
+                }
             }
-            if (bothReady) return states;
+            if (bothReady)
+            {
+                return states;
+            }
+
             await Task.Delay(20, timeout.Token);
         }
     }
@@ -112,27 +120,47 @@ public class SimulatorProcessTests
     private sealed class SimulatorProcess : IAsyncDisposable
     {
         private readonly Process process;
-        private readonly Task<string> errors;
+        private readonly Task<string> standardErrors;
 
         public SimulatorProcess(Guid session)
         {
-            var root = new DirectoryInfo(AppContext.BaseDirectory);
-            while (root is not null && !File.Exists(Path.Combine(root.FullName, "P2PDraw.sln"))) root = root.Parent;
-            if (root is null) throw new InvalidOperationException("Solution directory not found.");
+            var solutionDirectory = new DirectoryInfo(AppContext.BaseDirectory);
+            while (solutionDirectory is not null && !File.Exists(Path.Combine(solutionDirectory.FullName, "P2PDraw.sln")))
+            {
+                solutionDirectory = solutionDirectory.Parent;
+            }
+
+            if (solutionDirectory is null)
+            {
+                throw new InvalidOperationException("Solution directory not found.");
+            }
+
             string configuration = typeof(SimulatorProcessTests).Assembly.GetCustomAttribute<AssemblyConfigurationAttribute>()!.Configuration;
-            string assembly = Path.Combine(root.FullName, "src", "P2PDraw.Simulator", "bin", configuration, "net10.0", "P2PDraw.Simulator.dll");
-            var start = new ProcessStartInfo("dotnet") { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
-            start.ArgumentList.Add(assembly);
-            start.ArgumentList.Add("0");
-            start.ArgumentList.Add(session.ToString());
-            process = Process.Start(start) ?? throw new InvalidOperationException("Simulator did not start.");
-            errors = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+            string assembly = Path.Combine(solutionDirectory.FullName, "src", "P2PDraw.Simulator", "bin", configuration, "net10.0", "P2PDraw.Simulator.dll");
+            var startInfo = new ProcessStartInfo("dotnet")
+            {
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            startInfo.ArgumentList.Add(assembly);
+            startInfo.ArgumentList.Add("0");
+            startInfo.ArgumentList.Add(session.ToString());
+            var startedProcess = Process.Start(startInfo);
+            if (startedProcess is null)
+            {
+                throw new InvalidOperationException("Simulator did not start.");
+            }
+            process = startedProcess;
+            standardErrors = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
         }
 
         public async Task<JsonElement> CommandAsync(string command)
         {
             await process.StandardInput.WriteLineAsync(command.AsMemory(), TestContext.Current.CancellationToken);
-            return await ReadAsync(command is "state" or "log" ? command : "done");
+            string eventName = command == "state" || command == "log" ? command : "done";
+            return await ReadAsync(eventName);
         }
 
         public async Task<JsonElement> ReadAsync(string eventName)
@@ -140,7 +168,11 @@ public class SimulatorProcessTests
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(10));
             string? line = await process.StandardOutput.ReadLineAsync(timeout.Token);
-            if (line is null) throw new InvalidOperationException($"Simulator exited: {await errors}");
+            if (line is null)
+            {
+                throw new InvalidOperationException($"Simulator exited: {await standardErrors}");
+            }
+
             using var json = JsonDocument.Parse(line);
             Assert.Equal(eventName, json.RootElement.GetProperty("event").GetString());
             return json.RootElement.Clone();

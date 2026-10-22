@@ -1,6 +1,6 @@
+using System.Text.Json;
 using P2PDraw.Core.Operations;
 using P2PDraw.Core.Sync;
-using System.Text.Json;
 using Xunit;
 
 namespace P2PDraw.Tests.Core;
@@ -43,16 +43,26 @@ public class SyncEngineTests
         var first = firstEngine.BeginStroke(0, 2);
         firstEngine.AppendStroke(first.StrokeId, [new(0, 0)]);
         firstEngine.EndStroke(first.StrokeId);
-        foreach (var operation in firstEngine.GetOperations()) secondEngine.Receive(operation);
+        foreach (var operation in firstEngine.GetOperations())
+        {
+            secondEngine.Receive(operation);
+        }
 
         firstEngine.ClearCanvas();
         var concurrent = secondEngine.BeginStroke(0, 3);
         secondEngine.AppendStroke(concurrent.StrokeId, [new(2, 3)]);
         secondEngine.EndStroke(concurrent.StrokeId);
-        var toA = secondEngine.GetMissingOperations(firstEngine.GetOperations().Select(operation => operation.Stamp.OperationId));
-        var toB = firstEngine.GetMissingOperations(secondEngine.GetOperations().Select(operation => operation.Stamp.OperationId));
-        foreach (var operation in toA.Reverse()) firstEngine.Receive(operation);
-        foreach (var operation in toB.Reverse()) secondEngine.Receive(operation);
+        var missingAtFirst = secondEngine.GetMissingOperations(firstEngine.GetOperations().Select(operation => operation.Stamp.OperationId));
+        var missingAtSecond = firstEngine.GetMissingOperations(secondEngine.GetOperations().Select(operation => operation.Stamp.OperationId));
+        foreach (var operation in missingAtFirst.Reverse())
+        {
+            firstEngine.Receive(operation);
+        }
+
+        foreach (var operation in missingAtSecond.Reverse())
+        {
+            secondEngine.Receive(operation);
+        }
 
         Assert.Equal(concurrent.StrokeId, Assert.Single(firstEngine.GetStrokes()).StrokeId);
         Assert.Equal(JsonSerializer.Serialize(firstEngine.GetStrokes()), JsonSerializer.Serialize(secondEngine.GetStrokes()));
@@ -78,7 +88,11 @@ public class SyncEngineTests
     {
         var engine = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
         var drawingTasks = new List<Task>();
-        for (int i = 0; i < 100; i++) drawingTasks.Add(Task.Run(() => engine.BeginStroke(0, 1)));
+        for (int i = 0; i < 100; i++)
+        {
+            drawingTasks.Add(Task.Run(() => engine.BeginStroke(0, 1)));
+        }
+
         await Task.WhenAll(drawingTasks);
 
         Assert.Equal(100, engine.GetStrokes().Length);
