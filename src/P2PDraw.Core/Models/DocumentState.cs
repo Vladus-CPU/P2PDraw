@@ -1,5 +1,5 @@
-using P2PDraw.Core.Operations;
 using System.Collections.Immutable;
+using P2PDraw.Core.Operations;
 
 namespace P2PDraw.Core.Models;
 
@@ -21,11 +21,18 @@ public sealed class DocumentState
 
     public bool Apply(Operation operation)
     {
-        if (!log.Add(operation)) return false;
+        if (!log.Add(operation))
+        {
+            return false;
+        }
 
         if (operation is CanvasClear clear)
         {
-            foreach (var id in clear.StrokeIds) Remove(id);
+            foreach (var clearedStrokeId in clear.StrokeIds)
+            {
+                Remove(clearedStrokeId);
+            }
+
             return true;
         }
         if (operation is StrokeRemove remove)
@@ -41,7 +48,11 @@ public sealed class DocumentState
             StrokeEnd end => end.StrokeId,
             _ => throw new ArgumentException("Unknown stroke operation.")
         };
-        if (tombstones.Contains(strokeId)) return true;
+        if (tombstones.Contains(strokeId))
+        {
+            return true;
+        }
+
         if (!strokeOperations.TryGetValue(strokeId, out var changes))
         {
             changes = [];
@@ -73,11 +84,21 @@ public sealed class DocumentState
         var points = new SortedDictionary<int, StrokePoint>();
         foreach (var operation in orderedOperations)
         {
-            if (operation is not StrokeAppend append || append.Stamp.PeerId != begin.Stamp.PeerId) continue;
-            for (int i = 0; i < append.Points.Length; i++) points.TryAdd(append.StartIndex + i, append.Points[i]);
+            if (operation is not StrokeAppend append || append.Stamp.PeerId != begin.Stamp.PeerId)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < append.Points.Length; i++)
+            {
+                points.TryAdd(append.StartIndex + i, append.Points[i]);
+            }
         }
-        var contiguous = ImmutableArray.CreateBuilder<StrokePoint>();
-        while (points.TryGetValue(contiguous.Count, out var point)) contiguous.Add(point);
+        var contiguousPoints = ImmutableArray.CreateBuilder<StrokePoint>();
+        while (points.TryGetValue(contiguousPoints.Count, out var point))
+        {
+            contiguousPoints.Add(point);
+        }
 
         StrokeEnd? end = null;
         foreach (var operation in orderedOperations)
@@ -88,10 +109,17 @@ public sealed class DocumentState
                 break;
             }
         }
-        bool hasGap = contiguous.Count != points.Count || (end is not null && contiguous.Count != end.PointCount);
-        if (hasGap) pendingStrokes.Add(strokeId);
-        else pendingStrokes.Remove(strokeId);
+        bool hasGap = contiguousPoints.Count != points.Count || (end is not null && contiguousPoints.Count != end.PointCount);
+        if (hasGap)
+        {
+            pendingStrokes.Add(strokeId);
+        }
+        else
+        {
+            pendingStrokes.Remove(strokeId);
+        }
 
-        strokes[strokeId] = new Stroke(strokeId, begin.Stamp.PeerId, begin.Color, begin.Width, begin.Stamp, contiguous.ToImmutable(), end is not null && !hasGap);
+        bool isComplete = end is not null && !hasGap;
+        strokes[strokeId] = new Stroke(strokeId, begin.Stamp.PeerId, begin.Color, begin.Width, begin.Stamp, contiguousPoints.ToImmutable(), isComplete);
     }
 }

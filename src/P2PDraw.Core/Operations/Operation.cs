@@ -1,6 +1,6 @@
-using P2PDraw.Core.Models;
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
+using P2PDraw.Core.Models;
 
 namespace P2PDraw.Core.Operations;
 
@@ -9,8 +9,16 @@ public readonly record struct OperationStamp(Guid OperationId, Guid PeerId, long
     public int CompareTo(OperationStamp other)
     {
         int result = LamportTime.CompareTo(other.LamportTime);
-        if (result == 0) result = PeerId.CompareTo(other.PeerId);
-        if (result == 0) result = OperationId.CompareTo(other.OperationId);
+        if (result == 0)
+        {
+            result = PeerId.CompareTo(other.PeerId);
+        }
+
+        if (result == 0)
+        {
+            result = OperationId.CompareTo(other.OperationId);
+        }
+
         return result;
     }
 }
@@ -26,48 +34,65 @@ public abstract record Operation(OperationStamp Stamp)
     public void Validate()
     {
         if (Stamp.OperationId == Guid.Empty || Stamp.PeerId == Guid.Empty || Stamp.SequenceNumber <= 0 || Stamp.LamportTime <= 0)
+        {
             throw new ArgumentException("Invalid operation stamp.");
+        }
 
-        bool valid = false;
+        bool isValid = false;
         switch (this)
         {
             case StrokeBegin begin:
-                valid = begin.StrokeId != Guid.Empty && double.IsFinite(begin.Width) && begin.Width > 0;
+                isValid = begin.StrokeId != Guid.Empty && double.IsFinite(begin.Width) && begin.Width > 0;
                 break;
             case StrokeAppend append:
-                valid = append.StrokeId != Guid.Empty && append.StartIndex >= 0 && !append.Points.IsDefaultOrEmpty;
-                if (!valid) break;
-                valid = append.StartIndex <= int.MaxValue - append.Points.Length;
-                if (!valid) break;
+                isValid = append.StrokeId != Guid.Empty && append.StartIndex >= 0 && !append.Points.IsDefaultOrEmpty;
+                if (!isValid)
+                {
+                    break;
+                }
+
+                isValid = append.StartIndex <= int.MaxValue - append.Points.Length;
+                if (!isValid)
+                {
+                    break;
+                }
+
                 foreach (var point in append.Points)
                 {
                     if (!double.IsFinite(point.X) || !double.IsFinite(point.Y))
                     {
-                        valid = false;
+                        isValid = false;
                         break;
                     }
                 }
                 break;
             case StrokeEnd end:
-                valid = end.StrokeId != Guid.Empty && end.PointCount >= 0;
+                isValid = end.StrokeId != Guid.Empty && end.PointCount >= 0;
                 break;
             case StrokeRemove remove:
-                valid = remove.StrokeId != Guid.Empty;
+                isValid = remove.StrokeId != Guid.Empty;
                 break;
             case CanvasClear clear:
-                valid = !clear.StrokeIds.IsDefault;
-                if (!valid) break;
+                isValid = !clear.StrokeIds.IsDefault;
+                if (!isValid)
+                {
+                    break;
+                }
+
                 foreach (var strokeId in clear.StrokeIds)
                 {
                     if (strokeId == Guid.Empty)
                     {
-                        valid = false;
+                        isValid = false;
                         break;
                     }
                 }
                 break;
         }
-        if (!valid) throw new ArgumentException("Invalid operation payload.");
+        if (!isValid)
+        {
+            throw new ArgumentException("Invalid operation payload.");
+        }
     }
 }
 

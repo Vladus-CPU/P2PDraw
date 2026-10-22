@@ -1,7 +1,7 @@
-using P2PDraw.Core.Models;
-using P2PDraw.Core.Operations;
 using System.Collections.Immutable;
 using System.Text.Json;
+using P2PDraw.Core.Models;
+using P2PDraw.Core.Operations;
 
 namespace P2PDraw.Core.Sync;
 
@@ -11,17 +11,38 @@ public sealed record Snapshot(Guid SessionId, long LamportTime, ImmutableArray<S
     internal void Validate()
     {
         if (SessionId == Guid.Empty || LamportTime < 0 || LamportTime == long.MaxValue || Strokes.IsDefault || Tombstones.IsDefault || Operations.IsDefault || PendingStrokeIds.IsDefault)
+        {
             throw new ArgumentException("Invalid snapshot metadata.");
-        if (Strokes.Any(stroke => stroke is null || stroke.Points.IsDefault)) throw new ArgumentException("Invalid snapshot stroke.");
+        }
 
-        var restored = new DocumentState();
+        if (Strokes.Any(stroke => stroke is null || stroke.Points.IsDefault))
+        {
+            throw new ArgumentException("Invalid snapshot stroke.");
+        }
+
+        var restoredDocument = new DocumentState();
         foreach (var operation in Operations)
         {
-            if (operation is null || operation.Stamp.LamportTime > LamportTime) throw new ArgumentException("Invalid snapshot operation.");
-            if (!restored.Apply(operation)) throw new ArgumentException("Duplicate snapshot operation.");
+            if (operation is null || operation.Stamp.LamportTime > LamportTime)
+            {
+                throw new ArgumentException("Invalid snapshot operation.");
+            }
+
+            if (!restoredDocument.Apply(operation))
+            {
+                throw new ArgumentException("Duplicate snapshot operation.");
+            }
         }
-        if (!restored.GetTombstones().SequenceEqual(Tombstones) || !restored.GetPendingStrokeIds().SequenceEqual(PendingStrokeIds)
-            || JsonSerializer.Serialize(restored.GetStrokes()) != JsonSerializer.Serialize(Strokes))
+        if (!restoredDocument.GetTombstones().SequenceEqual(Tombstones) || !restoredDocument.GetPendingStrokeIds().SequenceEqual(PendingStrokeIds))
+        {
             throw new ArgumentException("Snapshot state does not match its log.");
+        }
+
+        string restoredStrokesJson = JsonSerializer.Serialize(restoredDocument.GetStrokes());
+        string snapshotStrokesJson = JsonSerializer.Serialize(Strokes);
+        if (restoredStrokesJson != snapshotStrokesJson)
+        {
+            throw new ArgumentException("Snapshot state does not match its log.");
+        }
     }
 }

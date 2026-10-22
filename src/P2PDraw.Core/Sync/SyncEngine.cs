@@ -1,90 +1,145 @@
+using System.Collections.Immutable;
 using P2PDraw.Core.Models;
 using P2PDraw.Core.Operations;
-using System.Collections.Immutable;
 
 namespace P2PDraw.Core.Sync;
 
 public sealed class SyncEngine
 {
-    private readonly object gate = new();
+    private readonly object stateLock = new();
     private readonly LamportClock clock = new();
     private DocumentState document = new();
-    private long sequence;
+    private long sequenceNumber;
 
     public Guid PeerId { get; }
     public Guid SessionId { get; }
     public long LamportTime
     {
-        get { lock (gate) return clock.Value; }
+        get
+        {
+            lock (stateLock)
+            {
+                return clock.Value;
+            }
+        }
     }
 
     public SyncEngine(Guid peerId, Guid sessionId)
     {
-        if (peerId == Guid.Empty || sessionId == Guid.Empty) throw new ArgumentException("Peer and session IDs are required.");
+        if (peerId == Guid.Empty || sessionId == Guid.Empty)
+        {
+            throw new ArgumentException("Peer and session IDs are required.");
+        }
+
         PeerId = peerId;
         SessionId = sessionId;
     }
 
     public ImmutableArray<Stroke> GetStrokes()
     {
-        lock (gate) return document.GetStrokes();
+        lock (stateLock)
+        {
+            return document.GetStrokes();
+        }
     }
 
     public ImmutableArray<Guid> GetTombstones()
     {
-        lock (gate) return document.GetTombstones();
+        lock (stateLock)
+        {
+            return document.GetTombstones();
+        }
     }
 
     public ImmutableArray<Guid> GetPendingStrokeIds()
     {
-        lock (gate) return document.GetPendingStrokeIds();
+        lock (stateLock)
+        {
+            return document.GetPendingStrokeIds();
+        }
     }
 
     public ImmutableArray<Operation> GetOperations()
     {
-        lock (gate) return document.GetOperations();
+        lock (stateLock)
+        {
+            return document.GetOperations();
+        }
     }
 
     public ImmutableArray<Operation> GetMissingOperations(IEnumerable<Guid> knownIds)
     {
-        lock (gate) return document.GetMissingOperations(knownIds);
+        lock (stateLock)
+        {
+            return document.GetMissingOperations(knownIds);
+        }
     }
 
     public Snapshot CreateSnapshot()
     {
-        lock (gate) return new Snapshot(SessionId, clock.Value, document.GetStrokes(), document.GetTombstones(), document.GetOperations(), document.GetPendingStrokeIds());
+        lock (stateLock)
+        {
+            var strokes = document.GetStrokes();
+            var tombstones = document.GetTombstones();
+            var operations = document.GetOperations();
+            var pendingStrokeIds = document.GetPendingStrokeIds();
+            return new Snapshot(SessionId, clock.Value, strokes, tombstones, operations, pendingStrokeIds);
+        }
     }
 
     public void MergeSnapshot(Snapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        if (snapshot.SessionId != SessionId) throw new ArgumentException("Snapshot belongs to another session.");
+        if (snapshot.SessionId != SessionId)
+        {
+            throw new ArgumentException("Snapshot belongs to another session.");
+        }
+
         snapshot.Validate();
-        lock (gate)
+        lock (stateLock)
         {
             var merged = new DocumentState();
-            foreach (var operation in document.GetOperations()) merged.Apply(operation);
+            foreach (var operation in document.GetOperations())
+            {
+                merged.Apply(operation);
+            }
+
             bool hasNewOperations = false;
-            long restoredSequence = sequence;
+            long restoredSequence = sequenceNumber;
             foreach (var operation in snapshot.Operations)
             {
-                if (merged.Apply(operation)) hasNewOperations = true;
-                if (operation.Stamp.PeerId == PeerId) restoredSequence = Math.Max(restoredSequence, operation.Stamp.SequenceNumber);
+                if (merged.Apply(operation))
+                {
+                    hasNewOperations = true;
+                }
+
+                if (operation.Stamp.PeerId == PeerId)
+                {
+                    restoredSequence = Math.Max(restoredSequence, operation.Stamp.SequenceNumber);
+                }
             }
             if (hasNewOperations)
             {
-                if (clock.Value == long.MaxValue) throw new ArgumentException("Logical time is exhausted.");
+                if (clock.Value == long.MaxValue)
+                {
+                    throw new ArgumentException("Logical time is exhausted.");
+                }
+
                 clock.Receive(snapshot.LamportTime);
             }
-            sequence = restoredSequence;
+            sequenceNumber = restoredSequence;
             document = merged;
         }
     }
 
     public StrokeBegin BeginStroke(uint color, double width)
     {
-        if (!double.IsFinite(width) || width <= 0) throw new ArgumentOutOfRangeException(nameof(width));
-        lock (gate)
+        if (!double.IsFinite(width) || width <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+
+        lock (stateLock)
         {
             var operation = new StrokeBegin(NextStamp(), Guid.NewGuid(), color, width);
             document.Apply(operation);
@@ -95,12 +150,19 @@ public sealed class SyncEngine
     public StrokeAppend AppendStroke(Guid strokeId, IEnumerable<StrokePoint> points)
     {
         var batch = points.ToImmutableArray();
-        if (batch.IsEmpty || batch.Any(p => !double.IsFinite(p.X) || !double.IsFinite(p.Y)))
+        if (batch.IsEmpty || batch.Any(point => !double.IsFinite(point.X) || !double.IsFinite(point.Y)))
+        {
             throw new ArgumentException("A batch must contain finite points.");
-        lock (gate)
+        }
+
+        lock (stateLock)
         {
             var stroke = GetEditableStroke(strokeId);
-            if (batch.Length > int.MaxValue - stroke.Points.Length) throw new ArgumentException("Too many stroke points.");
+            if (batch.Length > int.MaxValue - stroke.Points.Length)
+            {
+                throw new ArgumentException("Too many stroke points.");
+            }
+
             var operation = new StrokeAppend(NextStamp(), strokeId, stroke.Points.Length, batch);
             document.Apply(operation);
             return operation;
@@ -109,7 +171,7 @@ public sealed class SyncEngine
 
     public StrokeEnd EndStroke(Guid strokeId)
     {
-        lock (gate)
+        lock (stateLock)
         {
             var stroke = GetEditableStroke(strokeId);
             var operation = new StrokeEnd(NextStamp(), strokeId, stroke.Points.Length);
@@ -120,8 +182,12 @@ public sealed class SyncEngine
 
     public StrokeRemove RemoveStroke(Guid strokeId)
     {
-        if (strokeId == Guid.Empty) throw new ArgumentException("Stroke ID is required.");
-        lock (gate)
+        if (strokeId == Guid.Empty)
+        {
+            throw new ArgumentException("Stroke ID is required.");
+        }
+
+        lock (stateLock)
         {
             var operation = new StrokeRemove(NextStamp(), strokeId);
             document.Apply(operation);
@@ -131,7 +197,7 @@ public sealed class SyncEngine
 
     public CanvasClear ClearCanvas()
     {
-        lock (gate)
+        lock (stateLock)
         {
             var operation = new CanvasClear(NextStamp(), document.GetStrokes().Select(stroke => stroke.StrokeId).ToImmutableArray());
             document.Apply(operation);
@@ -142,30 +208,49 @@ public sealed class SyncEngine
     public bool Receive(Operation operation)
     {
         operation.Validate();
-        lock (gate)
+        lock (stateLock)
         {
-            if (document.ContainsOperation(operation.Stamp.OperationId)) return false;
-            if (operation.Stamp.LamportTime == long.MaxValue || clock.Value == long.MaxValue) throw new ArgumentException("Logical time is exhausted.");
-            if (!document.Apply(operation)) return false;
+            if (document.ContainsOperation(operation.Stamp.OperationId))
+            {
+                return false;
+            }
+
+            if (operation.Stamp.LamportTime == long.MaxValue || clock.Value == long.MaxValue)
+            {
+                throw new ArgumentException("Logical time is exhausted.");
+            }
+
+            if (!document.Apply(operation))
+            {
+                return false;
+            }
+
             clock.Receive(operation.Stamp.LamportTime);
-            if (operation.Stamp.PeerId == PeerId) sequence = Math.Max(sequence, operation.Stamp.SequenceNumber);
+            if (operation.Stamp.PeerId == PeerId)
+            {
+                sequenceNumber = Math.Max(sequenceNumber, operation.Stamp.SequenceNumber);
+            }
+
             return true;
         }
     }
 
     private OperationStamp NextStamp()
     {
-        long nextSequence = checked(sequence + 1);
+        long nextSequence = checked(sequenceNumber + 1);
         long time = clock.Tick();
-        sequence = nextSequence;
-        return new(Guid.NewGuid(), PeerId, sequence, time);
+        sequenceNumber = nextSequence;
+        return new(Guid.NewGuid(), PeerId, sequenceNumber, time);
     }
 
     private Stroke GetEditableStroke(Guid strokeId)
     {
         var stroke = document.GetStrokes().FirstOrDefault(stroke => stroke.StrokeId == strokeId);
         if (stroke is null || stroke.PeerId != PeerId || stroke.IsComplete || document.GetPendingStrokeIds().Contains(strokeId))
+        {
             throw new InvalidOperationException("Stroke cannot be edited by this peer.");
+        }
+
         return stroke;
     }
 }

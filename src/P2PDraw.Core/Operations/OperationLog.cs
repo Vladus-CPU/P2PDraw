@@ -13,10 +13,16 @@ public sealed class OperationLog
     public bool Add(Operation operation)
     {
         operation.Validate();
-        if (Contains(operation.Stamp.OperationId)) return false;
+        if (Contains(operation.Stamp.OperationId))
+        {
+            return false;
+        }
 
         var key = (operation.Stamp.PeerId, operation.Stamp.SequenceNumber);
-        if (sequences.ContainsKey(key)) throw new ArgumentException("Sequence number already belongs to another operation.");
+        if (sequences.ContainsKey(key))
+        {
+            throw new ArgumentException("Sequence number already belongs to another operation.");
+        }
 
         operations.Add(operation.Stamp.OperationId, operation);
         sequences.Add(key, operation.Stamp.OperationId);
@@ -31,7 +37,10 @@ public sealed class OperationLog
         var missingOperations = ImmutableArray.CreateBuilder<Operation>();
         foreach (var operation in GetOperations())
         {
-            if (!knownIds.Contains(operation.Stamp.OperationId)) missingOperations.Add(operation);
+            if (!knownIds.Contains(operation.Stamp.OperationId))
+            {
+                missingOperations.Add(operation);
+            }
         }
         return missingOperations.ToImmutable();
     }
@@ -41,7 +50,10 @@ public sealed class OperationLog
         long lastSequence = 0;
         foreach (var key in sequences.Keys)
         {
-            if (key.PeerId == peerId) lastSequence = Math.Max(lastSequence, key.SequenceNumber);
+            if (key.PeerId == peerId)
+            {
+                lastSequence = Math.Max(lastSequence, key.SequenceNumber);
+            }
         }
         return lastSequence;
     }
