@@ -21,10 +21,16 @@ public class MessageFramingTests
         await MessageFraming.WriteAsync(output, new Sample("Привіт"), TestContext.Current.CancellationToken);
         await MessageFraming.WriteAsync(output, new Sample("Другий штрих"), TestContext.Current.CancellationToken);
         byte[] data = output.ToArray();
-        Assert.Equal(System.Text.Encoding.UTF8.GetByteCount("{\"Text\":\"\\u041F\\u0440\\u0438\\u0432\\u0456\\u0442\"}"), BinaryPrimitives.ReadInt32BigEndian(data));
+        int expectedLength = System.Text.Encoding.UTF8.GetByteCount("{\"Text\":\"\\u041F\\u0440\\u0438\\u0432\\u0456\\u0442\"}");
+        int actualLength = BinaryPrimitives.ReadInt32BigEndian(data);
+        Assert.Equal(expectedLength, actualLength);
         using var input = new FragmentedStream(data);
-        Assert.Equal("Привіт", (await MessageFraming.ReadAsync<Sample>(input, TestContext.Current.CancellationToken))!.Text);
-        Assert.Equal("Другий штрих", (await MessageFraming.ReadAsync<Sample>(input, TestContext.Current.CancellationToken))!.Text);
+        var firstMessage = await MessageFraming.ReadAsync<Sample>(input, TestContext.Current.CancellationToken);
+        var secondMessage = await MessageFraming.ReadAsync<Sample>(input, TestContext.Current.CancellationToken);
+        Assert.NotNull(firstMessage);
+        Assert.NotNull(secondMessage);
+        Assert.Equal("Привіт", firstMessage.Text);
+        Assert.Equal("Другий штрих", secondMessage.Text);
         Assert.Null(await MessageFraming.ReadAsync<Sample>(input, TestContext.Current.CancellationToken));
     }
 
@@ -70,7 +76,8 @@ public class MessageFramingTests
     public async Task OversizedWriteDoesNotWriteHeader()
     {
         using var output = new MemoryStream();
-        await Assert.ThrowsAsync<InvalidDataException>(() => MessageFraming.WriteAsync(output, new Sample(new string('x', MessageFraming.MaxMessageSize)), TestContext.Current.CancellationToken));
+        var message = new Sample(new string('x', MessageFraming.MaxMessageSize));
+        await Assert.ThrowsAsync<InvalidDataException>(() => MessageFraming.WriteAsync(output, message, TestContext.Current.CancellationToken));
         Assert.Equal(0, output.Length);
     }
 
