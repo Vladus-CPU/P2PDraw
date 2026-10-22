@@ -6,11 +6,13 @@ using P2PDraw.Core.Operations;
 namespace P2PDraw.Core.Sync;
 
 // The full log also preserves point batches that are waiting for missing data.
-public sealed record Snapshot(Guid SessionId, long LamportTime, ImmutableArray<Stroke> Strokes, ImmutableArray<Guid> Tombstones, ImmutableArray<Operation> Operations, ImmutableArray<Guid> PendingStrokeIds)
+public sealed record Snapshot(Guid SessionId, long LamportTime, ImmutableArray<Stroke> Strokes,
+    ImmutableArray<Guid> Tombstones, ImmutableArray<Operation> Operations, ImmutableArray<Guid> PendingStrokeIds)
 {
     internal void Validate()
     {
-        if (SessionId == Guid.Empty || LamportTime < 0 || LamportTime == long.MaxValue || Strokes.IsDefault || Tombstones.IsDefault || Operations.IsDefault || PendingStrokeIds.IsDefault)
+        if (SessionId == Guid.Empty || LamportTime < 0 || LamportTime == long.MaxValue
+            || Strokes.IsDefault || Tombstones.IsDefault || Operations.IsDefault || PendingStrokeIds.IsDefault)
         {
             throw new ArgumentException("Invalid snapshot metadata.");
         }

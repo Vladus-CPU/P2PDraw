@@ -2,10 +2,7 @@ namespace P2PDraw.Core.Sync;
 
 public sealed class LamportClock
 {
-    public long Value
-    {
-        get; private set;
-    }
+    public long Value { get; private set; }
 
     public long Tick()
     {

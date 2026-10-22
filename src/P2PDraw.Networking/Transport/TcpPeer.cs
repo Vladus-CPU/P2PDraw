@@ -51,7 +51,7 @@ public sealed class TcpPeer : IAsyncDisposable
 
         listener = new TcpListener(address ?? IPAddress.Any, port);
         listener.Start();
-        acceptTask = AcceptAsync();
+        acceptTask = AcceptConnectionsAsync();
     }
 
     public Task<Guid> ConnectAsync(string host, int port, CancellationToken cancellationToken = default)
@@ -88,7 +88,7 @@ public sealed class TcpPeer : IAsyncDisposable
             }
 
             var connection = new Connection(client, welcome.PeerId, true);
-            if (Register(connection, (host, port), expectedPeerId))
+            if (RegisterConnection(connection, (host, port), expectedPeerId))
             {
                 TrackBackgroundTask(RunConnectionAsync(connection));
             }
@@ -142,7 +142,7 @@ public sealed class TcpPeer : IAsyncDisposable
         Changed?.Invoke();
     }
 
-    private async Task AcceptAsync()
+    private async Task AcceptConnectionsAsync()
     {
         try
         {
@@ -186,7 +186,7 @@ public sealed class TcpPeer : IAsyncDisposable
             var welcome = new WelcomeMessage(engine.PeerId, engine.SessionId, ProtocolVersion);
             await MessageFraming.WriteAsync<NetworkMessage>(stream, welcome, timeout.Token);
             var connection = new Connection(client, hello.PeerId, false);
-            if (Register(connection))
+            if (RegisterConnection(connection))
             {
                 await RunConnectionAsync(connection);
             }
@@ -204,7 +204,7 @@ public sealed class TcpPeer : IAsyncDisposable
         }
     }
 
-    private bool Register(Connection connection, (string Host, int Port)? target = null, Guid expectedPeerId = default)
+    private bool RegisterConnection(Connection connection, (string Host, int Port)? target = null, Guid expectedPeerId = default)
     {
         lock (stateLock)
         {
@@ -242,7 +242,7 @@ public sealed class TcpPeer : IAsyncDisposable
 
     private async Task RunConnectionAsync(Connection connection)
     {
-        var readingTask = ReadAsync(connection);
+        var readingTask = ReceiveMessagesAsync(connection);
         connection.IsSyncPending = true;
         await SendAsync(connection, CreateSyncRequest(), lifetime.Token);
         await readingTask;
@@ -277,7 +277,7 @@ public sealed class TcpPeer : IAsyncDisposable
         await SendAsync(connection, new SyncCompleteMessage(), lifetime.Token);
     }
 
-    private async Task ReadAsync(Connection connection)
+    private async Task ReceiveMessagesAsync(Connection connection)
     {
         try
         {
@@ -467,13 +467,20 @@ public sealed class TcpPeer : IAsyncDisposable
         await Task.WhenAll(pending);
     }
 
-    private sealed class Connection(TcpClient client, Guid peerId, bool outgoing)
+    private sealed class Connection
     {
         private readonly SemaphoreSlim sendLock = new(1, 1);
-        public TcpClient Client { get; } = client;
-        public Guid PeerId { get; } = peerId;
-        public bool IsOutgoing { get; } = outgoing;
+        public TcpClient Client { get; }
+        public Guid PeerId { get; }
+        public bool IsOutgoing { get; }
         public bool IsSyncPending { get; set; }
+
+        public Connection(TcpClient client, Guid peerId, bool isOutgoing)
+        {
+            Client = client;
+            PeerId = peerId;
+            IsOutgoing = isOutgoing;
+        }
 
         public async Task SendAsync(NetworkMessage message, CancellationToken cancellationToken)
         {

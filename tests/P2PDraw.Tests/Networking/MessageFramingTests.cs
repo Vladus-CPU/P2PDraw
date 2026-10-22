@@ -8,8 +8,12 @@ public class MessageFramingTests
 {
     private sealed record Sample(string Text);
 
-    private sealed class FragmentedStream(byte[] bytes) : MemoryStream(bytes)
+    private sealed class FragmentedStream : MemoryStream
     {
+        public FragmentedStream(byte[] bytes) : base(bytes)
+        {
+        }
+
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             int bytesToRead = Math.Min(buffer.Length, 1);
