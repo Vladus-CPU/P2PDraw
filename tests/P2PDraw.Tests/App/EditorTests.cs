@@ -3,8 +3,13 @@ using System.Net.Sockets;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Headless;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
+using P2PDraw.App.Controls;
 using P2PDraw.App.ViewModels;
+using P2PDraw.App.Views;
 using Xunit;
 
 namespace P2PDraw.Tests.App;
@@ -12,6 +17,72 @@ namespace P2PDraw.Tests.App;
 public class EditorTests
 {
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<P2PDraw.App.App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
+
+    [Fact]
+    public async Task TwoWindowsSyncPointerDrawingClearAndReconnect()
+    {
+        await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
+        await session.Dispatch(async () =>
+        {
+            string sessionId = Guid.NewGuid().ToString();
+            var first = new MainWindowViewModel(["0", sessionId, "1"]);
+            var second = new MainWindowViewModel(["0", sessionId, "1"]);
+            var firstWindow = new MainWindow { DataContext = first };
+            var secondWindow = new MainWindow { DataContext = second };
+            try
+            {
+                firstWindow.Show();
+                secondWindow.Show();
+                firstWindow.UpdateLayout();
+                secondWindow.UpdateLayout();
+                firstWindow.FindControl<Button>("ListenButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                secondWindow.FindControl<Button>("ListenButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await WaitUntilAsync(() => first.CanConnect && second.CanConnect);
+                first.RemotePort = second.LocalPort;
+                var connectButton = firstWindow.FindControl<Button>("ConnectButton")!;
+                connectButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await WaitUntilAsync(() => first.ConnectedPeers == 1 && second.ConnectedPeers == 1);
+
+                firstWindow.FindControl<ComboBox>("BrushColors")!.SelectedIndex = 2;
+                firstWindow.FindControl<Slider>("BrushSize")!.Value = 7;
+                DrawStroke(firstWindow, new Point(40, 50), new Point(100, 120));
+                await WaitUntilAsync(() => second.OperationCount == 4);
+                var coloredStroke = Assert.Single(second.Strokes);
+                Assert.Equal(0xFFDC2626u, coloredStroke.Color);
+                Assert.Equal(7, coloredStroke.Width);
+                Assert.True(coloredStroke.IsComplete);
+                Assert.Equal(Normalize(first), Normalize(second));
+
+                DrawStroke(secondWindow, new Point(160, 70), new Point(220, 140));
+                await WaitUntilAsync(() => first.OperationCount == 8 && second.OperationCount == 8);
+                var clearButton = firstWindow.FindControl<Button>("ClearButton")!;
+                clearButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await WaitUntilAsync(() => second.OperationCount == 9);
+                Assert.Empty(second.Strokes);
+
+                firstWindow.FindControl<Button>("DisconnectButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await WaitUntilAsync(() => first.ConnectedPeers == 0 && second.ConnectedPeers == 0);
+                DrawStroke(firstWindow, new Point(50, 180), new Point(110, 220));
+                DrawStroke(secondWindow, new Point(170, 180), new Point(230, 220));
+                clearButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                connectButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await WaitUntilAsync(() => first.OperationCount == 18 && second.OperationCount == 18);
+                Assert.Equal(Normalize(first), Normalize(second));
+                Assert.Single(first.Strokes);
+                Assert.Equal(3, first.GetSnapshot().Tombstones.Length);
+                var surface = firstWindow.FindControl<DrawingCanvas>("DrawingSurface")!;
+                Assert.Equal(first.Strokes, surface.Strokes);
+            }
+            finally
+            {
+                await first.DisposeAsync();
+                await second.DisposeAsync();
+                firstWindow.Close();
+                secondWindow.Close();
+            }
+            return true;
+        }, TestContext.Current.CancellationToken);
+    }
 
     [Fact]
     public async Task LocalDrawingUsesCoreAndLocksSession()
@@ -131,6 +202,16 @@ public class EditorTests
     {
         var snapshot = model.GetSnapshot();
         return JsonSerializer.Serialize(new { snapshot.Strokes, snapshot.Tombstones, snapshot.PendingStrokeIds, snapshot.Operations });
+    }
+
+    private static void DrawStroke(MainWindow window, Point start, Point end)
+    {
+        var surface = window.FindControl<DrawingCanvas>("DrawingSurface")!;
+        Point windowStart = surface.TranslatePoint(start, window)!.Value;
+        Point windowEnd = surface.TranslatePoint(end, window)!.Value;
+        window.MouseDown(windowStart, MouseButton.Left);
+        window.MouseMove(windowEnd, RawInputModifiers.LeftMouseButton);
+        window.MouseUp(windowEnd, MouseButton.Left);
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)
