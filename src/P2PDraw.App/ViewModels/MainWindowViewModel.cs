@@ -130,7 +130,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         {
             status = "Параметри запуску: <локальний порт> <SessionId> <віддалений порт>.";
         }
-        Guid initialSession = Guid.TryParse(sessionId, out var parsedSession) ? parsedSession : Guid.NewGuid();
+        bool hasValidSession = Guid.TryParse(sessionId, out var parsedSession) && parsedSession != Guid.Empty;
+        Guid initialSession = hasValidSession ? parsedSession : Guid.NewGuid();
         engine = new SyncEngine(Guid.NewGuid(), initialSession);
         sendingTask = Task.Run(SendOperationsAsync);
     }
@@ -202,7 +203,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         try
         {
             await peer.ConnectAsync(RemoteAddress, port, lifetime.Token);
-            Status = "З'єднання встановлено. Синхронізація документа…";
+            Status = "З'єднання встановлено. Зміни передаються автоматично.";
         }
         catch (Exception exception) when (exception is IOException || exception is SocketException || exception is OperationCanceledException || exception is ArgumentException)
         {

@@ -19,6 +19,75 @@ public class EditorTests
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<P2PDraw.App.App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
 
     [Fact]
+    public async Task MinimumWindowSizeKeepsNetworkButtonsInsidePanel()
+    {
+        await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
+        await session.Dispatch(async () =>
+        {
+            await using var model = new MainWindowViewModel();
+            var window = new MainWindow { DataContext = model };
+            window.Width = window.MinWidth;
+            window.Height = window.MinHeight;
+            window.Show();
+            window.UpdateLayout();
+            var disconnectButton = window.FindControl<Button>("DisconnectButton")!;
+            var surface = window.FindControl<DrawingCanvas>("DrawingSurface")!;
+            Point buttonBottom = disconnectButton.TranslatePoint(new Point(0, disconnectButton.Bounds.Height), window)!.Value;
+            Point canvasBottom = surface.TranslatePoint(new Point(0, surface.Bounds.Height), window)!.Value;
+            Assert.True(buttonBottom.Y <= canvasBottom.Y);
+            await model.DisposeAsync();
+            window.Close();
+            return true;
+        }, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task RemoteClearWhilePointerIsCapturedDoesNotResurrectStroke()
+    {
+        await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
+        await session.Dispatch(async () =>
+        {
+            string sessionId = Guid.NewGuid().ToString();
+            var first = new MainWindowViewModel(["0", sessionId, "1"]);
+            var second = new MainWindowViewModel(["0", sessionId, "1"]);
+            var window = new MainWindow { DataContext = first };
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+                await first.StartListeningAsync();
+                await second.StartListeningAsync();
+                first.RemotePort = second.LocalPort;
+                await first.ConnectAsync();
+                await WaitUntilAsync(() => first.ConnectedPeers == 1 && second.ConnectedPeers == 1);
+                var surface = window.FindControl<DrawingCanvas>("DrawingSurface")!;
+                Point start = surface.TranslatePoint(new Point(40, 50), window)!.Value;
+                Point end = surface.TranslatePoint(new Point(100, 120), window)!.Value;
+                window.MouseDown(start, MouseButton.Left);
+                await WaitUntilAsync(() => second.OperationCount == 2);
+                second.ClearCanvas();
+                await WaitUntilAsync(() => first.OperationCount == 3);
+                window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+                window.MouseUp(end, MouseButton.Left);
+                Assert.Empty(first.Strokes);
+                Assert.Empty(second.Strokes);
+                Assert.Equal(Normalize(first), Normalize(second));
+
+                DrawStroke(window, new Point(150, 160), new Point(200, 210));
+                await WaitUntilAsync(() => second.OperationCount == 7);
+                Assert.True(Assert.Single(second.Strokes).IsComplete);
+            }
+            finally
+            {
+                await first.DisposeAsync();
+                await second.DisposeAsync();
+                window.Close();
+            }
+            return true;
+        }, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task TwoWindowsSyncPointerDrawingClearAndReconnect()
     {
         await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
@@ -109,13 +178,15 @@ public class EditorTests
         }, TestContext.Current.CancellationToken);
     }
 
-    [Fact]
-    public async Task InvalidSessionDoesNotCreateOperationsOrListener()
+    [Theory]
+    [InlineData("invalid")]
+    [InlineData("00000000-0000-0000-0000-000000000000")]
+    public async Task InvalidSessionDoesNotCreateOperationsOrListener(string sessionId)
     {
         await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
         await session.Dispatch(async () =>
         {
-            await using var model = new MainWindowViewModel(["0", "invalid", "1"]);
+            await using var model = new MainWindowViewModel(["0", sessionId, "1"]);
             Assert.False(model.BeginStroke(new(1, 1)));
             await model.StartListeningAsync();
             Assert.Empty(model.GetSnapshot().Operations);
