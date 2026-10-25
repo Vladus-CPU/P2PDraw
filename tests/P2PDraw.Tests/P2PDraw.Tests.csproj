@@ -4,9 +4,11 @@
     <ProjectReference Include="..\..\src\P2PDraw.Core\P2PDraw.Core.csproj" />
     <ProjectReference Include="..\..\src\P2PDraw.Networking\P2PDraw.Networking.csproj" />
     <ProjectReference Include="..\..\src\P2PDraw.Simulator\P2PDraw.Simulator.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\src\P2PDraw.App\P2PDraw.App.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Avalonia.Headless" Version="12.1.4" />
     <PackageReference Include="xunit.v3" Version="4.0.2" />
   </ItemGroup>
 
