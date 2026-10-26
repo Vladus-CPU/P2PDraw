@@ -7,6 +7,109 @@ namespace P2PDraw.Tests.Integration;
 
 public class SimulatorProcessTests
 {
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    public async Task FullMeshContinuesAfterFirstProcessExits(int peerCount)
+    {
+        var session = Guid.NewGuid();
+        var processes = new List<SimulatorProcess>();
+        var ports = new List<int>();
+        try
+        {
+            for (int index = 0; index < peerCount; index++)
+            {
+                var process = new SimulatorProcess(session);
+                processes.Add(process);
+                var ready = await process.ReadAsync("ready");
+                ports.Add(ready.GetProperty("port").GetInt32());
+            }
+            Assert.Equal(peerCount, ports.Distinct().Count());
+
+            // Both directions race for the first pair; the mesh must keep one socket per pair.
+            await Task.WhenAll(processes[0].CommandAsync($"connect 127.0.0.1 {ports[1]}"),
+                processes[1].CommandAsync($"connect 127.0.0.1 {ports[0]}"));
+            for (int first = 0; first < peerCount; first++)
+            {
+                for (int second = first + 1; second < peerCount; second++)
+                {
+                    await processes[first].CommandAsync($"connect 127.0.0.1 {ports[second]}");
+                }
+            }
+            await WaitForMeshAsync(processes, 0, peerCount - 1);
+
+            var drawingTasks = new List<Task<JsonElement>>();
+            for (int index = 0; index < peerCount; index++)
+            {
+                drawingTasks.Add(processes[index].CommandAsync($"draw {index} 1 {index + 1} 2"));
+            }
+            await Task.WhenAll(drawingTasks);
+            var states = await WaitForMeshAsync(processes, peerCount * 3, peerCount - 1);
+            foreach (var state in states)
+            {
+                AssertMatchingDocuments(states[0], state);
+            }
+
+            var departing = processes[0];
+            await departing.DisposeAsync();
+            processes.RemoveAt(0);
+            await WaitForMeshAsync(processes, peerCount * 3, peerCount - 2);
+            await Task.WhenAll(processes[0].CommandAsync("clear"), processes[1].CommandAsync("draw 20 21 22 23"));
+            states = await WaitForMeshAsync(processes, peerCount * 3 + 4, peerCount - 2);
+            foreach (var state in states)
+            {
+                AssertMatchingDocuments(states[0], state);
+                int removedCount = state.GetProperty("tombstones").GetArrayLength();
+                int visibleCount = state.GetProperty("strokes").GetArrayLength();
+                Assert.InRange(removedCount, peerCount, peerCount + 1);
+                Assert.Equal(peerCount + 1, removedCount + visibleCount);
+            }
+        }
+        finally
+        {
+            foreach (var process in processes)
+            {
+                await process.DisposeAsync();
+            }
+        }
+    }
+
+    private static void AssertMatchingDocuments(JsonElement expected, JsonElement actual)
+    {
+        foreach (string property in new[] { "strokes", "tombstones", "pending", "operations" })
+        {
+            Assert.True(JsonElement.DeepEquals(expected.GetProperty(property), actual.GetProperty(property)), property);
+        }
+    }
+
+    private static async Task<JsonElement[]> WaitForMeshAsync(IReadOnlyList<SimulatorProcess> processes, int operationCount, int connections)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        while (true)
+        {
+            var stateTasks = new List<Task<JsonElement>>();
+            foreach (var process in processes)
+            {
+                stateTasks.Add(process.CommandAsync("state"));
+            }
+            var states = await Task.WhenAll(stateTasks);
+            bool allReady = true;
+            foreach (var state in states)
+            {
+                if (state.GetProperty("operations").GetArrayLength() != operationCount || state.GetProperty("connections").GetInt32() != connections)
+                {
+                    allReady = false;
+                }
+            }
+            if (allReady)
+            {
+                return states;
+            }
+            await Task.Delay(20, timeout.Token);
+        }
+    }
+
     [Fact]
     public async Task ConcurrentDrawingRemovalAndDuplicatesConverge()
     {
