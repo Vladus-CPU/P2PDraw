@@ -8,6 +8,7 @@ public sealed class DocumentState
     private readonly OperationLog log = new();
     private readonly Dictionary<Guid, List<Operation>> strokeOperations = [];
     private readonly Dictionary<Guid, Stroke> strokes = [];
+    // Stroke IDs are never reused: removing an ID is permanent, as in a two-phase set.
     private readonly HashSet<Guid> tombstones = [];
     private readonly HashSet<Guid> pendingStrokes = [];
 
