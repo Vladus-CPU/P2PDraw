@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
@@ -11,6 +12,38 @@ namespace P2PDraw.Tests.Networking;
 
 public class TcpPeerTests
 {
+    [Fact]
+    public async Task OversizedKnownIdListRequestsSafeLogReplay()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var engine = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
+        for (int index = 0; index < 110000; index++)
+        {
+            engine.BeginStroke(0, 1);
+        }
+        var knownIds = engine.GetOperations().Select(operation => operation.Stamp.OperationId).ToImmutableArray();
+        Assert.False(MessageFraming.FitsInFrame<NetworkMessage>(new SyncRequestMessage(knownIds)));
+        await using var peer = new TcpPeer(engine);
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            var connecting = peer.ConnectAsync("127.0.0.1", ((IPEndPoint)listener.LocalEndpoint).Port, cancellationToken);
+            using var remote = await listener.AcceptTcpClientAsync(cancellationToken);
+            var stream = remote.GetStream();
+            Assert.IsType<HelloMessage>(await MessageFraming.ReadAsync<NetworkMessage>(stream, cancellationToken));
+            await MessageFraming.WriteAsync<NetworkMessage>(stream, new WelcomeMessage(Guid.NewGuid(), engine.SessionId, TcpPeer.ProtocolVersion), cancellationToken);
+            await connecting;
+            var request = Assert.IsType<SyncRequestMessage>(await MessageFraming.ReadAsync<NetworkMessage>(stream, cancellationToken));
+            Assert.Empty(request.KnownOperationIds);
+            Assert.Equal(110000, engine.GetOperations().Length);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
     [Fact]
     public async Task ListenerCanRetryAfterPortWasOccupied()
     {
