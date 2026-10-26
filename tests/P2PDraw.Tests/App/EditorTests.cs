@@ -19,6 +19,35 @@ public class EditorTests
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<P2PDraw.App.App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
 
     [Fact]
+    public async Task UnavailableDiscoveryDoesNotBlockManualTcpConnection()
+    {
+        await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
+        await session.Dispatch(async () =>
+        {
+            using var occupiedPort = new UdpClient(AddressFamily.InterNetwork);
+            occupiedPort.ExclusiveAddressUse = true;
+            occupiedPort.Client.Bind(new IPEndPoint(IPAddress.Any, P2PDraw.Networking.Discovery.PeerDiscovery.DefaultPort));
+            string sessionId = Guid.NewGuid().ToString();
+            await using var first = new MainWindowViewModel(["0", sessionId, "1"]);
+            await using var second = new MainWindowViewModel(["0", sessionId, "1"]);
+
+            await first.StartListeningAsync();
+            await second.StartListeningAsync();
+            Assert.True(first.CanConnect);
+            Assert.Contains("Пошук недоступний", first.DiscoveryStatus);
+            Assert.Empty(first.DiscoveredPeers);
+            first.RemotePort = second.LocalPort;
+            await first.ConnectAsync();
+            await WaitUntilAsync(() => first.ConnectedPeers == 1 && second.ConnectedPeers == 1);
+            first.BeginStroke(new(10, 20));
+            first.EndStroke();
+            await WaitUntilAsync(() => second.OperationCount == 3);
+            Assert.Equal(Normalize(first), Normalize(second));
+            return true;
+        }, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task FoundPeerCanBeSelectedAndConnectedFromWindow()
     {
         await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
