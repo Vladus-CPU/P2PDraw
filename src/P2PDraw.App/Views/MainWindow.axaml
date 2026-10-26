@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="using:P2PDraw.App.Controls"
         xmlns:vm="using:P2PDraw.App.ViewModels"
+        xmlns:discovery="using:P2PDraw.Networking.Discovery"
         x:Class="P2PDraw.App.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="{Binding LocalPort, StringFormat='P2PDraw · порт {0}'}"
@@ -58,7 +59,7 @@
                 </StackPanel>
             </Border>
 
-            <Grid Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="12">
+            <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*" RowSpacing="12">
                 <Border Background="White" BorderBrush="#DAE0E8" BorderThickness="1" CornerRadius="10" Padding="14">
                     <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="12">
                         <TextBlock Text="Колір" Classes="label" VerticalAlignment="Center" />
@@ -79,7 +80,22 @@
                                 Foreground="#A52D36" Background="#FFF0F0" />
                     </Grid>
                 </Border>
-                <Border Grid.Row="1" BorderBrush="#CBD3DF" BorderThickness="1" Background="White" CornerRadius="4" ClipToBounds="True">
+                <Border Grid.Row="1" Background="White" BorderBrush="#DAE0E8" BorderThickness="1" CornerRadius="8" Padding="12">
+                    <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" ColumnSpacing="12" RowSpacing="6">
+                        <ComboBox x:Name="DiscoveredPeerList" ItemsSource="{Binding DiscoveredPeers}" SelectedItem="{Binding SelectedPeer, Mode=TwoWay}"
+                                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" PlaceholderText="Знайдені вузли цієї сесії">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="discovery:DiscoveredPeer">
+                                    <TextBlock Text="{Binding DisplayName}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <Button x:Name="ConnectDiscoveredButton" Grid.Column="1" Content="Підключити вибраний" Click="OnConnectDiscoveredClicked"
+                                IsEnabled="{Binding CanConnectDiscovered}" />
+                        <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding DiscoveryStatus}" Classes="label" TextWrapping="Wrap" />
+                    </Grid>
+                </Border>
+                <Border Grid.Row="2" BorderBrush="#CBD3DF" BorderThickness="1" Background="White" CornerRadius="4" ClipToBounds="True">
                     <controls:DrawingCanvas x:Name="DrawingSurface" Strokes="{Binding Strokes}" />
                 </Border>
             </Grid>

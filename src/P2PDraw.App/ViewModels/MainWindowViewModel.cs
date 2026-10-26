@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
@@ -8,6 +9,7 @@ using Avalonia.Threading;
 using P2PDraw.Core.Models;
 using P2PDraw.Core.Operations;
 using P2PDraw.Core.Sync;
+using P2PDraw.Networking.Discovery;
 using P2PDraw.Networking.Transport;
 
 namespace P2PDraw.App.ViewModels;
@@ -19,6 +21,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
     private readonly Task sendingTask;
     private SyncEngine engine;
     private TcpPeer? peer;
+    private PeerDiscovery? discovery;
+    private DiscoveredPeer? selectedPeer;
+    private string discoveryStatus = "Пошук почнеться після запуску прослуховування.";
     private Guid? activeStrokeId;
     private string sessionId = Guid.NewGuid().ToString();
     private string localPort = "5101";
@@ -37,6 +42,28 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
     public int StrokeCount => Strokes.Length;
     public int OperationCount { get; private set; }
     public int ConnectedPeers { get; private set; }
+    public ImmutableArray<DiscoveredPeer> DiscoveredPeers { get; private set; } = [];
+    public bool CanConnectDiscovered => CanConnect && SelectedPeer is not null;
+    public string DiscoveryStatus
+    {
+        get => discoveryStatus;
+        private set
+        {
+            discoveryStatus = value;
+            Notify();
+        }
+    }
+
+    public DiscoveredPeer? SelectedPeer
+    {
+        get => selectedPeer;
+        set
+        {
+            selectedPeer = value;
+            Notify();
+            Notify(nameof(CanConnectDiscovered));
+        }
+    }
     public uint BrushColor { get; set; } = 0xFF253449;
     public bool CanEditSession => !isSessionLocked;
     public bool CanStartListening => !isListening && !isBusy;
@@ -171,6 +198,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
             LocalPort = peer.Port.ToString();
             Status = $"Прослуховування порту {LocalPort}.";
             RefreshDocument();
+            await StartDiscoveryAsync();
         }
         catch (Exception exception) when (exception is SocketException || exception is ArgumentException || exception is OperationCanceledException)
         {
@@ -183,6 +211,72 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         {
             SetBusy(false);
         }
+    }
+
+    private async Task StartDiscoveryAsync()
+    {
+        var newDiscovery = new PeerDiscovery(engine.PeerId, engine.SessionId);
+        newDiscovery.Changed += OnDiscoveryChanged;
+        newDiscovery.Error += OnDiscoveryError;
+        try
+        {
+            int tcpPort = peer!.Port;
+            await Task.Run(() => newDiscovery.Start(tcpPort), lifetime.Token);
+            if (isDisposed)
+            {
+                newDiscovery.Changed -= OnDiscoveryChanged;
+                newDiscovery.Error -= OnDiscoveryError;
+                await newDiscovery.DisposeAsync();
+                return;
+            }
+            discovery = newDiscovery;
+            RefreshDiscoveredPeers();
+        }
+        catch (Exception exception) when (exception is IOException || exception is SocketException || exception is NetworkInformationException
+            || exception is ArgumentException || exception is OperationCanceledException)
+        {
+            newDiscovery.Changed -= OnDiscoveryChanged;
+            newDiscovery.Error -= OnDiscoveryError;
+            await newDiscovery.DisposeAsync();
+            DiscoveryStatus = $"Пошук недоступний. Підключіться за IP: {exception.Message}";
+        }
+    }
+
+    private void OnDiscoveryChanged() => Dispatcher.UIThread.Post(RefreshDiscoveredPeers);
+
+    private void OnDiscoveryError(string message)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!isDisposed)
+            {
+                DiscoveryStatus = $"Пошук: {message}. Ручне TCP-підключення доступне.";
+            }
+        });
+    }
+
+    private void RefreshDiscoveredPeers()
+    {
+        if (isDisposed || discovery is null)
+        {
+            return;
+        }
+        Guid? selectedId = SelectedPeer?.PeerId;
+        DiscoveredPeers = discovery.GetPeers();
+        Notify(nameof(DiscoveredPeers));
+        SelectedPeer = DiscoveredPeers.FirstOrDefault(found => found.PeerId == selectedId);
+        DiscoveryStatus = DiscoveredPeers.IsEmpty ? "Шукаємо вузли цієї сесії. Можна підключитися за IP." : $"Знайдено вузлів: {DiscoveredPeers.Length}";
+    }
+
+    public async Task ConnectDiscoveredAsync()
+    {
+        if (!CanConnectDiscovered || SelectedPeer is null)
+        {
+            return;
+        }
+        RemoteAddress = SelectedPeer.Address;
+        RemotePort = SelectedPeer.TcpPort.ToString();
+        await ConnectAsync();
     }
 
     public async Task ConnectAsync()
@@ -366,6 +460,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         Notify(nameof(CanStartListening));
         Notify(nameof(CanConnect));
         Notify(nameof(CanDisconnect));
+        Notify(nameof(CanConnectDiscovered));
     }
 
     private void Notify([CallerMemberName] string? propertyName = null)
@@ -383,6 +478,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         isDisposed = true;
         outgoing.Writer.TryComplete();
         await lifetime.CancelAsync();
+        if (discovery is not null)
+        {
+            discovery.Changed -= OnDiscoveryChanged;
+            discovery.Error -= OnDiscoveryError;
+            await discovery.DisposeAsync();
+        }
         if (peer is not null)
         {
             peer.Changed -= OnPeerChanged;

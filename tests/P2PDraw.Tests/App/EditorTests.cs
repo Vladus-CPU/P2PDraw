@@ -19,6 +19,48 @@ public class EditorTests
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<P2PDraw.App.App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
 
     [Fact]
+    public async Task FoundPeerCanBeSelectedAndConnectedFromWindow()
+    {
+        await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
+        await session.Dispatch(async () =>
+        {
+            string sessionId = Guid.NewGuid().ToString();
+            await using var first = new MainWindowViewModel(["0", sessionId, "1"]);
+            await using var second = new MainWindowViewModel(["0", sessionId, "1"]);
+            var window = new MainWindow { DataContext = first };
+            try
+            {
+                window.Show();
+                await first.StartListeningAsync();
+                await second.StartListeningAsync();
+                await WaitUntilAsync(() => first.DiscoveredPeers.Length == 1 && second.DiscoveredPeers.Length == 1);
+                var list = window.FindControl<ComboBox>("DiscoveredPeerList")!;
+                list.SelectedIndex = 0;
+                Assert.NotNull(first.SelectedPeer);
+                var button = window.FindControl<Button>("ConnectDiscoveredButton")!;
+                Assert.True(button.IsEnabled);
+                button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await WaitUntilAsync(() => first.ConnectedPeers == 1 && second.ConnectedPeers == 1);
+                first.BeginStroke(new(10, 20));
+                first.AppendStroke(new(30, 40));
+                await WaitUntilAsync(() => second.OperationCount == 3);
+                Assert.False(Assert.Single(second.Strokes).IsComplete);
+                Assert.Equal(2, Assert.Single(second.Strokes).Points.Length);
+                first.EndStroke();
+                await WaitUntilAsync(() => second.OperationCount == 4);
+                Assert.True(Assert.Single(second.Strokes).IsComplete);
+                Assert.Equal(Normalize(first), Normalize(second));
+            }
+            finally
+            {
+                await first.DisposeAsync();
+                window.Close();
+            }
+            return true;
+        }, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task MinimumWindowSizeKeepsNetworkButtonsInsidePanel()
     {
         await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));

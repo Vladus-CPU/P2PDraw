@@ -37,6 +37,14 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void OnConnectDiscoveredClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (Model is not null)
+        {
+            await Model.ConnectDiscoveredAsync();
+        }
+    }
+
     private void OnDisconnectClicked(object? sender, RoutedEventArgs eventArgs) => Model?.Disconnect();
     private void OnClearClicked(object? sender, RoutedEventArgs eventArgs) => Model?.ClearCanvas();
 
