@@ -251,8 +251,8 @@ public sealed class TcpPeer : IAsyncDisposable
 
     private async Task RunConnectionAsync(Connection connection)
     {
-        var readingTask = ReceiveMessagesAsync(connection);
         connection.IsSyncPending = true;
+        var readingTask = ReceiveMessagesAsync(connection);
         await SendAsync(connection, CreateSyncRequest(), lifetime.Token);
         await readingTask;
     }

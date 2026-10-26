@@ -13,6 +13,46 @@ namespace P2PDraw.Tests.Networking;
 public class TcpPeerTests
 {
     [Fact]
+    public async Task BufferedSyncCompleteDoesNotBlockLaterGapRequest()
+    {
+        var engine = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
+        var author = new SyncEngine(Guid.NewGuid(), engine.SessionId);
+        var begin = author.BeginStroke(0, 1);
+        var append = author.AppendStroke(begin.StrokeId, [new(1, 2)]);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(8));
+        await using var peer = new TcpPeer(engine);
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            var connecting = peer.ConnectAsync("127.0.0.1", ((IPEndPoint)listener.LocalEndpoint).Port, timeout.Token);
+            using var remote = await listener.AcceptTcpClientAsync(timeout.Token);
+            var stream = remote.GetStream();
+            Assert.IsType<HelloMessage>(await MessageFraming.ReadAsync<NetworkMessage>(stream, timeout.Token));
+            using var buffered = new MemoryStream();
+            await MessageFraming.WriteAsync<NetworkMessage>(buffered, new WelcomeMessage(author.PeerId, engine.SessionId, TcpPeer.ProtocolVersion), timeout.Token);
+            await MessageFraming.WriteAsync<NetworkMessage>(buffered, new SyncCompleteMessage(), timeout.Token);
+            await stream.WriteAsync(buffered.ToArray(), timeout.Token);
+            await connecting;
+            Assert.IsType<SyncRequestMessage>(await MessageFraming.ReadAsync<NetworkMessage>(stream, timeout.Token));
+
+            await MessageFraming.WriteAsync<NetworkMessage>(stream, new OperationMessage(append), timeout.Token);
+            var repair = Assert.IsType<SyncRequestMessage>(await MessageFraming.ReadAsync<NetworkMessage>(stream, timeout.Token));
+            Assert.Contains(append.Stamp.OperationId, repair.KnownOperationIds);
+            await MessageFraming.WriteAsync<NetworkMessage>(stream, new OperationMessage(begin), timeout.Token);
+            await MessageFraming.WriteAsync<NetworkMessage>(stream, new SyncCompleteMessage(), timeout.Token);
+            await WaitUntilAsync(() => engine.GetOperations().Length == 2);
+            Assert.Empty(engine.GetPendingStrokeIds());
+            Assert.Equal(author.GetStrokes()[0].Points, Assert.Single(engine.GetStrokes()).Points);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
     public async Task OversizedKnownIdListRequestsSafeLogReplay()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
