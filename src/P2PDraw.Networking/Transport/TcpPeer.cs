@@ -49,8 +49,17 @@ public sealed class TcpPeer : IAsyncDisposable
             throw new InvalidOperationException("Listener already started.");
         }
 
-        listener = new TcpListener(address ?? IPAddress.Any, port);
-        listener.Start();
+        var newListener = new TcpListener(address ?? IPAddress.Any, port);
+        try
+        {
+            newListener.Start();
+        }
+        catch
+        {
+            newListener.Stop();
+            throw;
+        }
+        listener = newListener;
         acceptTask = AcceptConnectionsAsync();
     }
 

@@ -12,6 +12,29 @@ namespace P2PDraw.Tests.Networking;
 public class TcpPeerTests
 {
     [Fact]
+    public async Task ListenerCanRetryAfterPortWasOccupied()
+    {
+        var engine = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
+        await using var peer = new TcpPeer(engine);
+        var occupied = new TcpListener(IPAddress.Loopback, 0);
+        occupied.Start();
+        try
+        {
+            int occupiedPort = ((IPEndPoint)occupied.LocalEndpoint).Port;
+            Assert.Throws<SocketException>(() => peer.Start(occupiedPort, IPAddress.Loopback));
+            peer.Start(0, IPAddress.Loopback);
+            Assert.True(peer.Port > 0);
+            await using var other = new TcpPeer(new SyncEngine(Guid.NewGuid(), engine.SessionId));
+            await other.ConnectAsync("127.0.0.1", peer.Port, TestContext.Current.CancellationToken);
+            await WaitUntilAsync(() => peer.ConnectionCount == 1 && other.ConnectionCount == 1);
+        }
+        finally
+        {
+            occupied.Stop();
+        }
+    }
+
+    [Fact]
     public async Task SnapshotAboveFrameLimitRecoversThroughOperations()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
