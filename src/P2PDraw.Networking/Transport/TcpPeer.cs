@@ -251,7 +251,13 @@ public sealed class TcpPeer : IAsyncDisposable
     private SyncRequestMessage CreateSyncRequest()
     {
         var knownIds = engine.GetOperations().Select(operation => operation.Stamp.OperationId).ToImmutableArray();
-        return new SyncRequestMessage(knownIds);
+        var request = new SyncRequestMessage(knownIds);
+        if (!MessageFraming.FitsInFrame<NetworkMessage>(request))
+        {
+            // An empty request safely replays the log when the ID list no longer fits.
+            return new SyncRequestMessage([]);
+        }
+        return request;
     }
 
     private async Task RespondToSyncAsync(Connection connection, SyncRequestMessage request)
@@ -259,7 +265,19 @@ public sealed class TcpPeer : IAsyncDisposable
         if (request.KnownOperationIds.IsEmpty)
         {
             var snapshot = engine.CreateSnapshot();
-            await SendAsync(connection, new SnapshotMessage(snapshot), lifetime.Token);
+            var message = new SnapshotMessage(snapshot);
+            if (MessageFraming.FitsInFrame<NetworkMessage>(message))
+            {
+                await SendAsync(connection, message, lifetime.Token);
+            }
+            else
+            {
+                // Replay the same frozen log as separate frames, including removals and pending points.
+                foreach (var operation in snapshot.Operations)
+                {
+                    await SendAsync(connection, new OperationMessage(operation), lifetime.Token);
+                }
+            }
             var snapshotOperationIds = snapshot.Operations.Select(operation => operation.Stamp.OperationId);
             var missingOperations = engine.GetMissingOperations(snapshotOperationIds);
             foreach (var operation in missingOperations)

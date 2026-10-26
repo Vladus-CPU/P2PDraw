@@ -13,6 +13,12 @@ public static class MessageFraming
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
     };
 
+    public static bool FitsInFrame<T>(T message) where T : class
+    {
+        int length = JsonSerializer.SerializeToUtf8Bytes(message, JsonOptions).Length;
+        return length > 0 && length <= MaxMessageSize;
+    }
+
     public static async Task WriteAsync<T>(Stream stream, T message, CancellationToken cancellationToken = default) where T : class
     {
         byte[] payload = JsonSerializer.SerializeToUtf8Bytes(message, JsonOptions);

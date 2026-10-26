@@ -11,6 +11,49 @@ namespace P2PDraw.Tests.Networking;
 
 public class TcpPeerTests
 {
+    [Fact]
+    public async Task SnapshotAboveFrameLimitRecoversThroughOperations()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var firstEngine = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
+        var secondEngine = new SyncEngine(Guid.NewGuid(), firstEngine.SessionId);
+        var points = new P2PDraw.Core.Models.StrokePoint[30000];
+        for (int index = 0; index < points.Length; index++)
+        {
+            points[index] = new(12345.6789 + index, 98765.4321 + index);
+        }
+        for (int index = 0; index < 5; index++)
+        {
+            var begin = firstEngine.BeginStroke(0, 2);
+            firstEngine.AppendStroke(begin.StrokeId, points);
+            firstEngine.EndStroke(begin.StrokeId);
+        }
+        var removed = firstEngine.BeginStroke(0, 1);
+        firstEngine.RemoveStroke(removed.StrokeId);
+        int snapshotSize = JsonSerializer.SerializeToUtf8Bytes<NetworkMessage>(new SnapshotMessage(firstEngine.CreateSnapshot())).Length;
+        Assert.True(snapshotSize > MessageFraming.MaxMessageSize);
+
+        await using var firstPeer = new TcpPeer(firstEngine);
+        await using var secondPeer = new TcpPeer(secondEngine);
+        firstPeer.Start(0, IPAddress.Loopback);
+        await secondPeer.ConnectAsync("127.0.0.1", firstPeer.Port, cancellationToken);
+        await WaitUntilAsync(() => secondEngine.GetOperations().Length == firstEngine.GetOperations().Length);
+
+        Assert.Equal(1, firstPeer.ConnectionCount);
+        Assert.Equal(1, secondPeer.ConnectionCount);
+        Assert.Equal(firstEngine.GetTombstones(), secondEngine.GetTombstones());
+        Assert.Equal(firstEngine.GetOperations().Select(operation => operation.Stamp.OperationId), secondEngine.GetOperations().Select(operation => operation.Stamp.OperationId));
+        var expectedStrokes = firstEngine.GetStrokes();
+        var actualStrokes = secondEngine.GetStrokes();
+        Assert.Equal(expectedStrokes.Length, actualStrokes.Length);
+        for (int index = 0; index < expectedStrokes.Length; index++)
+        {
+            Assert.Equal(expectedStrokes[index].StrokeId, actualStrokes[index].StrokeId);
+            Assert.Equal(expectedStrokes[index].Points, actualStrokes[index].Points);
+            Assert.True(actualStrokes[index].IsComplete);
+        }
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
         var cancellationToken = TestContext.Current.CancellationToken;
