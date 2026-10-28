@@ -19,6 +19,69 @@ public class EditorTests
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<P2PDraw.App.App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
 
     [Fact]
+    public async Task CompactTouchEditorSynchronizesWithDesktopAfterOfflineClear()
+    {
+        await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
+        await session.Dispatch(async () =>
+        {
+            string sessionId = Guid.NewGuid().ToString();
+            await using var mobile = new MainWindowViewModel(["0", sessionId, "1"]);
+            await using var desktop = new MainWindowViewModel(["0", sessionId, "1"]);
+            var mobileView = new MainView { DataContext = mobile };
+            var mobileWindow = new Window { Content = mobileView, Width = 390, Height = 844 };
+            var desktopWindow = new MainWindow { DataContext = desktop };
+            try
+            {
+                mobileWindow.Show();
+                desktopWindow.Show();
+                mobileWindow.UpdateLayout();
+                desktopWindow.UpdateLayout();
+                await mobile.StartListeningAsync();
+                await desktop.StartListeningAsync();
+                mobile.RemotePort = desktop.LocalPort;
+                await mobile.ConnectAsync();
+                await WaitUntilAsync(() => mobile.ConnectedPeers == 1 && desktop.ConnectedPeers == 1);
+
+                var surface = mobileView.FindControl<DrawingCanvas>("DrawingSurface")!;
+                Point start = surface.TranslatePoint(new Point(20, 30), mobileWindow)!.Value;
+                Point middle = surface.TranslatePoint(new Point(50, 60), mobileWindow)!.Value;
+                Point end = surface.TranslatePoint(new Point(80, 90), mobileWindow)!.Value;
+                using var finger = mobileWindow.TouchBegin(start);
+                mobileWindow.TouchMove(finger, middle);
+                await WaitUntilAsync(() => desktop.OperationCount == 3);
+                Assert.False(Assert.Single(desktop.Strokes).IsComplete);
+                DrawStroke(desktopWindow, new Point(150, 160), new Point(200, 210));
+                mobileWindow.TouchEnd(finger, end);
+                await WaitUntilAsync(() => mobile.OperationCount == 9 && desktop.OperationCount == 9);
+                Assert.Equal(Normalize(mobile), Normalize(desktop));
+
+                mobile.Disconnect();
+                await WaitUntilAsync(() => mobile.ConnectedPeers == 0 && desktop.ConnectedPeers == 0);
+                desktop.ClearCanvas();
+                using var offlineFinger = mobileWindow.TouchBegin(start);
+                mobileWindow.TouchEnd(offlineFinger, end);
+                Assert.Equal(0, mobile.ConnectedPeers);
+                Assert.Equal(0, desktop.ConnectedPeers);
+                Assert.Equal(13, mobile.OperationCount);
+                Assert.Equal(10, desktop.OperationCount);
+                await mobile.ConnectAsync();
+                await WaitUntilAsync(() => mobile.OperationCount == 14 && desktop.OperationCount == 14);
+                Assert.Equal(Normalize(mobile), Normalize(desktop));
+                Assert.Single(mobile.Strokes);
+                Assert.Equal(2, mobile.GetSnapshot().Tombstones.Length);
+            }
+            finally
+            {
+                await mobile.DisposeAsync();
+                await desktop.DisposeAsync();
+                mobileWindow.Close();
+                desktopWindow.Close();
+            }
+            return true;
+        }, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task MobileViewRecreationRetainsDocumentBrushAndSession()
     {
         await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
