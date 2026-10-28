@@ -175,16 +175,16 @@ public class EditorTests
                 secondWindow.Show();
                 firstWindow.UpdateLayout();
                 secondWindow.UpdateLayout();
-                firstWindow.FindControl<Button>("ListenButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                secondWindow.FindControl<Button>("ListenButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                firstWindow.Editor.FindControl<Button>("ListenButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                secondWindow.Editor.FindControl<Button>("ListenButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await WaitUntilAsync(() => first.CanConnect && second.CanConnect);
                 first.RemotePort = second.LocalPort;
-                var connectButton = firstWindow.FindControl<Button>("ConnectButton")!;
+                var connectButton = firstWindow.Editor.FindControl<Button>("ConnectButton")!;
                 connectButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await WaitUntilAsync(() => first.ConnectedPeers == 1 && second.ConnectedPeers == 1);
 
-                firstWindow.FindControl<ComboBox>("BrushColors")!.SelectedIndex = 2;
-                firstWindow.FindControl<Slider>("BrushSize")!.Value = 7;
+                firstWindow.Editor.FindControl<ComboBox>("BrushColors")!.SelectedIndex = 2;
+                firstWindow.Editor.FindControl<Slider>("BrushSize")!.Value = 7;
                 DrawStroke(firstWindow, new Point(40, 50), new Point(100, 120));
                 await WaitUntilAsync(() => second.OperationCount == 4);
                 var coloredStroke = Assert.Single(second.Strokes);
@@ -195,12 +195,12 @@ public class EditorTests
 
                 DrawStroke(secondWindow, new Point(160, 70), new Point(220, 140));
                 await WaitUntilAsync(() => first.OperationCount == 8 && second.OperationCount == 8);
-                var clearButton = firstWindow.FindControl<Button>("ClearButton")!;
+                var clearButton = firstWindow.Editor.FindControl<Button>("ClearButton")!;
                 clearButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await WaitUntilAsync(() => second.OperationCount == 9);
                 Assert.Empty(second.Strokes);
 
-                firstWindow.FindControl<Button>("DisconnectButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                firstWindow.Editor.FindControl<Button>("DisconnectButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await WaitUntilAsync(() => first.ConnectedPeers == 0 && second.ConnectedPeers == 0);
                 DrawStroke(firstWindow, new Point(50, 180), new Point(110, 220));
                 DrawStroke(secondWindow, new Point(170, 180), new Point(230, 220));
@@ -210,7 +210,7 @@ public class EditorTests
                 Assert.Equal(Normalize(first), Normalize(second));
                 Assert.Single(first.Strokes);
                 Assert.Equal(3, first.GetSnapshot().Tombstones.Length);
-                var surface = firstWindow.FindControl<DrawingCanvas>("DrawingSurface")!;
+                var surface = firstWindow.Editor.FindControl<DrawingCanvas>("DrawingSurface")!;
                 Assert.Equal(first.Strokes, surface.Strokes);
             }
             finally
