@@ -63,10 +63,10 @@ public class EditorTests
                 await first.StartListeningAsync();
                 await second.StartListeningAsync();
                 await WaitUntilAsync(() => first.DiscoveredPeers.Length == 1 && second.DiscoveredPeers.Length == 1);
-                var list = window.FindControl<ComboBox>("DiscoveredPeerList")!;
+                var list = window.Editor.FindControl<ComboBox>("DiscoveredPeerList")!;
                 list.SelectedIndex = 0;
                 Assert.NotNull(first.SelectedPeer);
-                var button = window.FindControl<Button>("ConnectDiscoveredButton")!;
+                var button = window.Editor.FindControl<Button>("ConnectDiscoveredButton")!;
                 Assert.True(button.IsEnabled);
                 button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await WaitUntilAsync(() => first.ConnectedPeers == 1 && second.ConnectedPeers == 1);
@@ -101,8 +101,8 @@ public class EditorTests
             window.Height = window.MinHeight;
             window.Show();
             window.UpdateLayout();
-            var disconnectButton = window.FindControl<Button>("DisconnectButton")!;
-            var surface = window.FindControl<DrawingCanvas>("DrawingSurface")!;
+            var disconnectButton = window.Editor.FindControl<Button>("DisconnectButton")!;
+            var surface = window.Editor.FindControl<DrawingCanvas>("DrawingSurface")!;
             Point buttonBottom = disconnectButton.TranslatePoint(new Point(0, disconnectButton.Bounds.Height), window)!.Value;
             Point canvasBottom = surface.TranslatePoint(new Point(0, surface.Bounds.Height), window)!.Value;
             Assert.True(buttonBottom.Y <= canvasBottom.Y);
@@ -131,7 +131,7 @@ public class EditorTests
                 first.RemotePort = second.LocalPort;
                 await first.ConnectAsync();
                 await WaitUntilAsync(() => first.ConnectedPeers == 1 && second.ConnectedPeers == 1);
-                var surface = window.FindControl<DrawingCanvas>("DrawingSurface")!;
+                var surface = window.Editor.FindControl<DrawingCanvas>("DrawingSurface")!;
                 Point start = surface.TranslatePoint(new Point(40, 50), window)!.Value;
                 Point end = surface.TranslatePoint(new Point(100, 120), window)!.Value;
                 window.MouseDown(start, MouseButton.Left);
@@ -348,7 +348,7 @@ public class EditorTests
 
     private static void DrawStroke(MainWindow window, Point start, Point end)
     {
-        var surface = window.FindControl<DrawingCanvas>("DrawingSurface")!;
+        var surface = window.Editor.FindControl<DrawingCanvas>("DrawingSurface")!;
         Point windowStart = surface.TranslatePoint(start, window)!.Value;
         Point windowEnd = surface.TranslatePoint(end, window)!.Value;
         window.MouseDown(windowStart, MouseButton.Left);
