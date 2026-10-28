@@ -18,6 +18,87 @@ public class EditorTests
 {
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<P2PDraw.App.App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
 
+    [Fact]
+    public async Task MobileViewRecreationRetainsDocumentBrushAndSession()
+    {
+        await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
+        await session.Dispatch(async () =>
+        {
+            var app = (P2PDraw.App.App)Application.Current!;
+            try
+            {
+                var firstView = app.CreateMobileView();
+                var model = (MainWindowViewModel)firstView.DataContext!;
+                firstView.FindControl<ComboBox>("BrushColors")!.SelectedIndex = 2;
+                model.BrushWidth = 7;
+                model.BeginStroke(new(10, 20));
+                model.EndStroke();
+
+                var recreatedView = app.CreateMobileView();
+                Assert.NotSame(firstView, recreatedView);
+                Assert.Same(model, recreatedView.DataContext);
+                Assert.Single(model.Strokes);
+                Assert.True(model.Strokes[0].IsComplete);
+                Assert.Equal(7, model.BrushWidth);
+                var color = Assert.IsType<ComboBoxItem>(recreatedView.FindControl<ComboBox>("BrushColors")!.SelectedItem);
+                Assert.Equal("#FFDC2626", color.Tag);
+                Assert.Equal(model.SessionId, app.MobileModel!.SessionId);
+
+                await app.CloseMobileEditorAsync();
+                Assert.Null(app.MobileModel);
+                var freshView = app.CreateMobileView();
+                Assert.NotSame(model, freshView.DataContext);
+                Assert.Empty(app.MobileModel!.Strokes);
+            }
+            finally
+            {
+                await app.CloseMobileEditorAsync();
+            }
+            return true;
+        }, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task ResumePreservesOfflineEditsAndRespectsManualDisconnect()
+    {
+        await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
+        await session.Dispatch(async () =>
+        {
+            string sessionId = Guid.NewGuid().ToString();
+            await using var first = new MainWindowViewModel(["0", sessionId, "1"]);
+            await using var second = new MainWindowViewModel(["0", sessionId, "1"]);
+            await first.StartListeningAsync();
+            await second.StartListeningAsync();
+            first.RemotePort = second.LocalPort;
+            await first.ConnectAsync();
+            first.BeginStroke(new(1, 2));
+            first.EndStroke();
+            await WaitUntilAsync(() => second.OperationCount == 3);
+            second.Disconnect();
+            await WaitUntilAsync(() => first.ConnectedPeers == 0 && second.ConnectedPeers == 0);
+
+            first.ResumeNetworking();
+            second.ResumeNetworking();
+            first.BeginStroke(new(3, 4));
+            first.EndStroke();
+            second.ClearCanvas();
+            second.BeginStroke(new(5, 6));
+            second.EndStroke();
+            Assert.Equal(0, first.ConnectedPeers);
+            Assert.Equal(0, second.ConnectedPeers);
+            Assert.Equal(6, first.OperationCount);
+            Assert.Equal(7, second.OperationCount);
+
+            second.RemotePort = first.LocalPort;
+            await second.ConnectAsync();
+            await WaitUntilAsync(() => first.OperationCount == 10 && second.OperationCount == 10);
+            Assert.Equal(Normalize(first), Normalize(second));
+            Assert.Equal(2, first.Strokes.Length);
+            Assert.Single(first.GetSnapshot().Tombstones);
+            return true;
+        }, TestContext.Current.CancellationToken);
+    }
+
     [Theory]
     [InlineData(360, 640)]
     [InlineData(390, 844)]

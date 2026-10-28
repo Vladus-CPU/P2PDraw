@@ -318,6 +318,16 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         RefreshDocument();
     }
 
+    public void ResumeNetworking()
+    {
+        if (isDisposed || isOffline || peer is null)
+        {
+            return;
+        }
+        peer.DisconnectAll(reconnect: true);
+        RefreshDocument();
+    }
+
     public bool BeginStroke(StrokePoint point)
     {
         if (isDisposed || !EnsureSession())

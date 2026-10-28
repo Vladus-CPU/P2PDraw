@@ -44,6 +44,19 @@ public partial class MainView : UserControl
 
     private MainWindowViewModel? Model => DataContext as MainWindowViewModel;
 
+    protected override void OnDataContextChanged(EventArgs eventArgs)
+    {
+        base.OnDataContextChanged(eventArgs);
+        foreach (var entry in BrushColors.Items)
+        {
+            if (entry is ComboBoxItem item && item.Tag is string value && Color.Parse(value).ToUInt32() == Model?.BrushColor)
+            {
+                BrushColors.SelectedItem = item;
+                break;
+            }
+        }
+    }
+
     private async void OnListenClicked(object? sender, RoutedEventArgs eventArgs)
     {
         if (Model is not null)

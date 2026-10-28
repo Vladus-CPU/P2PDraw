@@ -8,6 +8,8 @@ namespace P2PDraw.App;
 
 public partial class App : Application
 {
+    public MainWindowViewModel? MobileModel { get; private set; }
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -19,6 +21,27 @@ public partial class App : Application
         {
             desktop.MainWindow = new MainWindow { DataContext = new MainWindowViewModel(desktop.Args) };
         }
+        else if (ApplicationLifetime is IActivityApplicationLifetime activity)
+        {
+            activity.MainViewFactory = CreateMobileView;
+        }
         base.OnFrameworkInitializationCompleted();
+    }
+
+    public MainView CreateMobileView()
+    {
+        // Activity recreation replaces controls but retains the document and TCP peer.
+        MobileModel ??= new MainWindowViewModel();
+        return new MainView { DataContext = MobileModel };
+    }
+
+    public async Task CloseMobileEditorAsync()
+    {
+        var model = MobileModel;
+        MobileModel = null;
+        if (model is not null)
+        {
+            await model.DisposeAsync();
+        }
     }
 }
