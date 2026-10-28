@@ -79,11 +79,15 @@ public sealed class DrawingCanvas : Control
     protected override void OnPointerPressed(PointerPressedEventArgs eventArgs)
     {
         base.OnPointerPressed(eventArgs);
-        if (!eventArgs.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        if (drawingPointer is not null)
+        {
+            eventArgs.Handled = true;
+            return;
+        }
+        if (eventArgs.Pointer.Type == PointerType.Mouse && !eventArgs.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
             return;
         }
-        FinishStroke();
         drawingPointer = eventArgs.Pointer;
         drawingPointer.Capture(this);
         lastPoint = GetCanvasPoint(eventArgs);
@@ -98,7 +102,7 @@ public sealed class DrawingCanvas : Control
         {
             return;
         }
-        if (!eventArgs.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        if (eventArgs.Pointer.Type == PointerType.Mouse && !eventArgs.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
             FinishStroke();
             return;
@@ -115,7 +119,11 @@ public sealed class DrawingCanvas : Control
     protected override void OnPointerReleased(PointerReleasedEventArgs eventArgs)
     {
         base.OnPointerReleased(eventArgs);
-        if (drawingPointer != eventArgs.Pointer || eventArgs.InitialPressMouseButton != MouseButton.Left)
+        if (drawingPointer != eventArgs.Pointer)
+        {
+            return;
+        }
+        if (eventArgs.Pointer.Type == PointerType.Mouse && eventArgs.InitialPressMouseButton != MouseButton.Left)
         {
             return;
         }
@@ -131,7 +139,16 @@ public sealed class DrawingCanvas : Control
     protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs eventArgs)
     {
         base.OnPointerCaptureLost(eventArgs);
+        if (eventArgs.Pointer == drawingPointer)
+        {
+            FinishStroke();
+        }
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs eventArgs)
+    {
         FinishStroke();
+        base.OnDetachedFromVisualTree(eventArgs);
     }
 
     private StrokePoint GetCanvasPoint(PointerEventArgs eventArgs)

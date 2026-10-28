@@ -18,6 +18,71 @@ public class EditorTests
 {
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<P2PDraw.App.App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
 
+    [Theory]
+    [InlineData(360, 640)]
+    [InlineData(390, 844)]
+    [InlineData(844, 390)]
+    public async Task CompactViewKeepsCanvasAndConnectionSettingsUsable(int width, int height)
+    {
+        await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
+        await session.Dispatch(async () =>
+        {
+            await using var model = new MainWindowViewModel();
+            var view = new MainView { DataContext = model };
+            var window = new Window { Content = view, Width = width, Height = height };
+            window.Show();
+            window.UpdateLayout();
+            var expander = view.FindControl<Expander>("NetworkExpander")!;
+            var canvas = view.FindControl<DrawingCanvas>("DrawingSurface")!;
+            Assert.False(expander.IsExpanded);
+            Assert.True(canvas.Bounds.Width >= width - 40);
+            Assert.True(canvas.Bounds.Height > height * 0.35, $"Canvas: {canvas.Bounds}; window: {window.Bounds}");
+            var clear = view.FindControl<Button>("ClearButton")!;
+            Point clearPosition = clear.TranslatePoint(new Point(clear.Bounds.Width, clear.Bounds.Height), window)!.Value;
+            Assert.InRange(clearPosition.X, 0, window.Bounds.Width);
+            Assert.InRange(clearPosition.Y, 0, window.Bounds.Height);
+
+            expander.IsExpanded = true;
+            window.UpdateLayout();
+            Assert.True(view.FindControl<ScrollViewer>("NetworkScroll")!.Bounds.Height <= 260);
+            Assert.NotNull(view.FindControl<TextBox>("SessionIdBox"));
+            Assert.NotNull(view.FindControl<TextBox>("RemoteAddressBox"));
+            window.Close();
+            return true;
+        }, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task TouchDrawingIgnoresSecondFingerAndCompletesStroke()
+    {
+        await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
+        await session.Dispatch(async () =>
+        {
+            await using var model = new MainWindowViewModel();
+            var view = new MainView { DataContext = model };
+            var window = new Window { Content = view, Width = 390, Height = 844 };
+            window.Show();
+            window.UpdateLayout();
+            var surface = view.FindControl<DrawingCanvas>("DrawingSurface")!;
+            Point start = surface.TranslatePoint(new Point(20, 30), window)!.Value;
+            Point middle = surface.TranslatePoint(new Point(70, 90), window)!.Value;
+            Point end = surface.TranslatePoint(new Point(100, 120), window)!.Value;
+            using var firstFinger = window.TouchBegin(start);
+            window.TouchMove(firstFinger, middle);
+            using var secondFinger = window.TouchBegin(end);
+            window.TouchEnd(secondFinger, end);
+            Assert.False(Assert.Single(model.Strokes).IsComplete);
+            window.TouchEnd(firstFinger, end);
+
+            var stroke = Assert.Single(model.Strokes);
+            Assert.True(stroke.IsComplete);
+            Assert.Equal(3, stroke.Points.Length);
+            Assert.Equal(5, model.OperationCount);
+            window.Close();
+            return true;
+        }, TestContext.Current.CancellationToken);
+    }
+
     [Fact]
     public async Task UnavailableDiscoveryDoesNotBlockManualTcpConnection()
     {
