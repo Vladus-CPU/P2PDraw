@@ -583,7 +583,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
     {
         Dispatcher.UIThread.Post(() =>
         {
-            if (!isDisposed && !isOffline)
+            if (!isDisposed && !isOffline && peer?.ConnectionCount == 0)
             {
                 Status = "З'єднання втрачено. Очікуємо повторного підключення.";
             }
@@ -596,10 +596,19 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             return;
         }
+        int previousCount = ConnectedPeers;
         ConnectedPeers = peer?.ConnectionCount ?? 0;
         if (ConnectedPeers > 0)
         {
             hadConnection = true;
+            if (previousCount == 0)
+            {
+                Status = "З'єднання встановлено. Зміни передаються автоматично.";
+            }
+        }
+        else if (previousCount > 0 && !isOffline)
+        {
+            Status = "З'єднання втрачено. Очікуємо повторного підключення.";
         }
         Notify(nameof(ConnectedPeers));
         Notify(nameof(ConnectionStatus));

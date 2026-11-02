@@ -1,12 +1,55 @@
+using System.Net.Sockets;
 using Avalonia.Headless;
+using Avalonia.Threading;
 using P2PDraw.App.ViewModels;
 using P2PDraw.Networking.Discovery;
+using P2PDraw.Networking.Protocol;
+using P2PDraw.Networking.Transport;
 using Xunit;
 
 namespace P2PDraw.Tests.App;
 
 public partial class EditorTests
 {
+    [Fact]
+    public async Task ConnectionStatusRecoversAndIgnoresRejectedExtraClient()
+    {
+        await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
+        await session.Dispatch(async () =>
+        {
+            string sessionId = Guid.NewGuid().ToString();
+            await using var first = new MainWindowViewModel(["0", sessionId, "1"]);
+            await using var second = new MainWindowViewModel(["0", sessionId, "1"]);
+            await first.StartListeningAsync();
+            await second.StartListeningAsync();
+            second.RemotePort = first.LocalPort;
+            await second.ConnectAsync();
+            await WaitUntilAsync(() => first.ConnectedPeers == 1 && second.ConnectedPeers == 1);
+
+            using var rejected = new TcpClient();
+            await rejected.ConnectAsync("127.0.0.1", int.Parse(first.LocalPort), TestContext.Current.CancellationToken);
+            var stream = rejected.GetStream();
+            var wrongSession = new HelloMessage(Guid.NewGuid(), Guid.NewGuid(), TcpPeer.ProtocolVersion);
+            await MessageFraming.WriteAsync<NetworkMessage>(stream, wrongSession, TestContext.Current.CancellationToken);
+            var buffer = new byte[1];
+            Assert.Equal(0, await stream.ReadAsync(buffer, TestContext.Current.CancellationToken));
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+            Assert.Equal(1, first.ConnectedPeers);
+            Assert.Contains("З'єднання встановлено", first.Status);
+
+            await second.DisposeAsync();
+            await WaitUntilAsync(() => first.ConnectedPeers == 0);
+            Assert.Contains("З'єднання втрачено", first.Status);
+            await using var returning = new MainWindowViewModel(["0", sessionId, "1"]);
+            await returning.StartListeningAsync();
+            returning.RemotePort = first.LocalPort;
+            await returning.ConnectAsync();
+            await WaitUntilAsync(() => first.ConnectedPeers == 1 && returning.ConnectedPeers == 1);
+            Assert.Contains("З'єднання встановлено", first.Status);
+            return true;
+        }, TestContext.Current.CancellationToken);
+    }
+
     [Fact]
     public async Task ManualSessionMismatchCanBeCorrectedWithoutRestart()
     {
