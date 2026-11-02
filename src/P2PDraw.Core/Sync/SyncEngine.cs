@@ -307,6 +307,77 @@ public sealed class SyncEngine
         }
     }
 
+    public ObjectMove? TryMoveObject(Guid objectId, StrokePoint expectedOffset, OperationStamp? expectedStamp, StrokePoint offset)
+    {
+        lock (stateLock)
+        {
+            var shape = document.GetShapes().FirstOrDefault(shape => shape.ShapeId == objectId);
+            StrokePoint currentOffset;
+            OperationStamp? currentStamp;
+            if (shape is not null)
+            {
+                currentOffset = shape.Offset;
+                currentStamp = shape.MovedAt;
+            }
+            else
+            {
+                var stroke = document.GetStrokes().FirstOrDefault(stroke => stroke.StrokeId == objectId);
+                if (stroke is null)
+                {
+                    return null;
+                }
+                currentOffset = stroke.Offset;
+                currentStamp = stroke.MovedAt;
+            }
+            if (currentOffset != expectedOffset || currentStamp != expectedStamp)
+            {
+                return null;
+            }
+            // The reentrant lock keeps this check atomic with the normal mutation.
+            return MoveObject(objectId, offset);
+        }
+    }
+
+    public ShapeResize? TryResizeShape(Shape expected, StrokePoint start, StrokePoint end)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        lock (stateLock)
+        {
+            var shape = document.GetShapes().FirstOrDefault(shape => shape.ShapeId == expected.ShapeId);
+            if (shape is null || shape.Start != expected.Start || shape.End != expected.End || shape.ResizedAt != expected.ResizedAt)
+            {
+                return null;
+            }
+            return ResizeShape(shape.ShapeId, start, end);
+        }
+    }
+
+    public ObjectRemove? TryRemoveObject(Guid objectId, OperationStamp? expectedMove, OperationStamp? expectedResize,
+        OperationStamp? expectedLayer)
+    {
+        lock (stateLock)
+        {
+            var shape = document.GetShapes().FirstOrDefault(shape => shape.ShapeId == objectId);
+            if (shape is not null)
+            {
+                if (shape.MovedAt != expectedMove || shape.ResizedAt != expectedResize || shape.LayerChangedAt != expectedLayer)
+                {
+                    return null;
+                }
+            }
+            else
+            {
+                var stroke = document.GetStrokes().FirstOrDefault(stroke => stroke.StrokeId == objectId);
+                if (stroke is null || !stroke.IsComplete || stroke.MovedAt != expectedMove
+                    || expectedResize is not null || stroke.LayerChangedAt != expectedLayer)
+                {
+                    return null;
+                }
+            }
+            return RemoveObject(objectId);
+        }
+    }
+
     public LayerAdd AddLayer(string name, double? position = null)
     {
         ArgumentNullException.ThrowIfNull(name);
