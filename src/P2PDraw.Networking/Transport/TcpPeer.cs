@@ -9,7 +9,7 @@ namespace P2PDraw.Networking.Transport;
 
 public sealed class TcpPeer : IAsyncDisposable
 {
-    public const int ProtocolVersion = 3;
+    public const int ProtocolVersion = 4;
     private readonly object stateLock = new();
     private readonly SyncEngine engine;
     private readonly CancellationTokenSource lifetime = new();
@@ -377,7 +377,7 @@ public sealed class TcpPeer : IAsyncDisposable
                             Changed?.Invoke();
                         }
 
-                        if (!connection.IsSyncPending && !engine.GetPendingStrokeIds().IsEmpty)
+                        if (!connection.IsSyncPending && (!engine.GetPendingStrokeIds().IsEmpty || !engine.GetPendingLayerIds().IsEmpty))
                         {
                             connection.IsSyncPending = true;
                             TrackBackgroundTask(SendAsync(connection, CreateSyncRequest(), lifetime.Token));
