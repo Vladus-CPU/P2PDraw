@@ -2,12 +2,14 @@ using Android.App;
 using Android.Content.PM;
 using Android.Content;
 using Android.Net.Wifi;
+using Android.Views;
 using Avalonia.Android;
 
 namespace P2PDraw.Android;
 
 [Activity(Label = "P2PDraw", Theme = "@style/P2PDrawTheme", MainLauncher = true, Exported = true,
-    ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.ScreenSize | ConfigChanges.UiMode)]
+    ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.ScreenSize | ConfigChanges.UiMode,
+    WindowSoftInputMode = SoftInput.AdjustResize)]
 public class MainActivity : AvaloniaMainActivity
 {
     private WifiManager.MulticastLock? multicastLock;
