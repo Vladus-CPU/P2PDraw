@@ -560,8 +560,14 @@ public partial class EditorTests
         var snapshot = model.GetSnapshot();
         return JsonSerializer.Serialize(new
         {
-            snapshot.Strokes, snapshot.Shapes, snapshot.Layers, snapshot.LayerTombstones,
-            snapshot.Tombstones, snapshot.PendingStrokeIds, snapshot.PendingLayerIds, snapshot.Operations
+            snapshot.Strokes,
+            snapshot.Shapes,
+            snapshot.Layers,
+            snapshot.LayerTombstones,
+            snapshot.Tombstones,
+            snapshot.PendingStrokeIds,
+            snapshot.PendingLayerIds,
+            snapshot.Operations
         });
     }
 
