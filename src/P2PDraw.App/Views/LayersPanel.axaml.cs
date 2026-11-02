@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using P2PDraw.App.ViewModels;
@@ -6,6 +7,9 @@ namespace P2PDraw.App.Views;
 
 public partial class LayersPanel : UserControl
 {
+    private readonly Flyout layerActions;
+    private TopLevel? topLevel;
+    private bool restoreRenameField;
     public event Action? CloseRequested;
     public event Action? ClearRequested;
     public event Action? RemoveRequested;
@@ -14,7 +18,53 @@ public partial class LayersPanel : UserControl
     public LayersPanel()
     {
         InitializeComponent();
+        layerActions = (Flyout)MoreLayerButton.Flyout!;
         SizeChanged += (_, eventArgs) => LayerHint.IsVisible = eventArgs.NewSize.Height >= 300;
+        layerActions.Opened += (_, _) => MoreLayerButton.Classes.Add("selected");
+        layerActions.Closed += (_, _) => MoreLayerButton.Classes.Remove("selected");
+        LayerActionsScroll.LayoutUpdated += (_, _) =>
+        {
+            if (restoreRenameField)
+            {
+                restoreRenameField = false;
+                if (LayerNameBox.IsFocused)
+                {
+                    LayerNameBox.BringIntoView();
+                }
+            }
+        };
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs eventArgs)
+    {
+        base.OnAttachedToVisualTree(eventArgs);
+        topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel is not null)
+        {
+            topLevel.SizeChanged += OnViewportSizeChanged;
+        }
+        UpdateMenuSize();
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs eventArgs)
+    {
+        CloseMenu();
+        if (topLevel is not null)
+        {
+            topLevel.SizeChanged -= OnViewportSizeChanged;
+            topLevel = null;
+        }
+        base.OnDetachedFromVisualTree(eventArgs);
+    }
+
+    private void OnViewportSizeChanged(object? sender, SizeChangedEventArgs eventArgs) => UpdateMenuSize();
+
+    private void OnLayerSelectionChanged(object? sender, SelectionChangedEventArgs eventArgs)
+    {
+        if (LayerList.SelectedItem is LayerEntry layer && Model is not null)
+        {
+            Model.SelectedLayer = layer;
+        }
     }
 
     private void OnAddClicked(object? sender, RoutedEventArgs eventArgs)
@@ -56,24 +106,22 @@ public partial class LayersPanel : UserControl
         RemoveRequested?.Invoke();
     }
 
-    private void OnMoreClicked(object? sender, RoutedEventArgs eventArgs)
-    {
-        bool showActions = !LayerActionsScroll.IsVisible;
-        LayerActionsScroll.IsVisible = showActions;
-        LayerList.IsVisible = !showActions;
-        MoreLayerButton.Classes.Set("selected", showActions);
-    }
-
     public bool CloseMenu()
     {
-        if (!LayerActionsScroll.IsVisible)
+        if (!layerActions.IsOpen)
         {
             return false;
         }
-        LayerActionsScroll.IsVisible = false;
-        LayerList.IsVisible = true;
-        MoreLayerButton.Classes.Remove("selected");
+        layerActions.Hide();
         return true;
+    }
+
+    private void UpdateMenuSize()
+    {
+        var available = topLevel?.Bounds.Size ?? Bounds.Size;
+        LayerActionsScroll.Width = Math.Max(0, Math.Min(280, available.Width - 48));
+        LayerActionsScroll.MaxHeight = Math.Max(0, available.Height - 64);
+        restoreRenameField = true;
     }
 
     private void OnVisibilityClicked(object? sender, RoutedEventArgs eventArgs)
