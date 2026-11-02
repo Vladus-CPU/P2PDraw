@@ -17,6 +17,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
     private bool fillShapes;
     private bool isDisposed;
     private readonly ObjectDuplicator duplicator;
+    private readonly EditHistory history;
     private SyncEngine Engine => Session.Engine;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -27,6 +28,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
     public int StrokeCount => Strokes.Length;
     public int ObjectCount => Strokes.Length + Shapes.Length;
     public int OperationCount { get; private set; }
+    public bool CanUndo => !isDisposed && history.CanUndo;
+    public bool CanRedo => !isDisposed && history.CanRedo;
 
     public uint BrushColor
     {
@@ -112,7 +115,17 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
     public MainWindowViewModel(string[]? args = null)
     {
         Session = new SessionViewModel(args);
-        LayerEditor = new LayersViewModel(() => Engine, Session.EnsureSession, Session.PublishOperation);
+        history = new EditHistory(() => Engine, Session.PublishOperation);
+        history.Changed += () =>
+        {
+            Notify(nameof(CanUndo));
+            Notify(nameof(CanRedo));
+        };
+        LayerEditor = new LayersViewModel(() => Engine, Session.EnsureSession, operation =>
+        {
+            history.DiscardRedo();
+            Session.PublishOperation(operation);
+        });
         LayerEditor.Error += message => Status = message;
         duplicator = new ObjectDuplicator(() => Engine, Session.PublishOperation);
         Session.PropertyChanged += OnSessionPropertyChanged;
@@ -170,6 +183,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         try
         {
             Session.PublishOperation(Engine.EndStroke(activeStrokeId.Value));
+            history.RecordCreation(activeStrokeId.Value);
         }
         catch (InvalidOperationException)
         {
@@ -188,7 +202,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         uint? fill = FillShapes && kind != ShapeKind.Line ? BrushColor : null;
         try
         {
-            Session.PublishOperation(Engine.AddShape(kind, start, end, BrushColor, BrushWidth, fill, LayerEditor.ActiveLayerId));
+            var added = Engine.AddShape(kind, start, end, BrushColor, BrushWidth, fill, LayerEditor.ActiveLayerId);
+            Session.PublishOperation(added);
+            history.RecordCreation(added.ShapeId);
         }
         catch (ArgumentException)
         {
@@ -204,7 +220,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         }
         try
         {
-            Session.PublishOperation(Engine.MoveObject(objectId, offset));
+            var moved = Engine.MoveObject(objectId, offset);
+            Session.PublishOperation(moved);
+            history.RecordMove(moved);
         }
         catch (InvalidOperationException)
         {
@@ -225,6 +243,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         }
         try
         {
+            history.DiscardRedo();
             Session.PublishOperation(Engine.RemoveObject(objectId));
         }
         catch (ArgumentException)
@@ -241,7 +260,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         }
         try
         {
-            Session.PublishOperation(Engine.ResizeShape(shapeId, start, end));
+            var resized = Engine.ResizeShape(shapeId, start, end);
+            Session.PublishOperation(resized);
+            history.RecordResize(resized);
         }
         catch (Exception exception) when (exception is ArgumentException || exception is InvalidOperationException)
         {
@@ -263,11 +284,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
             var stroke = Strokes.FirstOrDefault(item => item.StrokeId == objectId);
             if (shape is not null)
             {
-                duplicator.Copy(shape, displacement);
+                Guid copyId = duplicator.Copy(shape, displacement);
+                history.RecordCreation(copyId);
             }
             else if (stroke is not null)
             {
-                duplicator.Copy(stroke, displacement);
+                Guid copyId = duplicator.Copy(stroke, displacement);
+                history.RecordCreation(copyId);
             }
         }
         catch (Exception exception) when (exception is ArgumentException || exception is InvalidOperationException)
@@ -283,11 +306,30 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
             return;
         }
         EndStroke();
+        history.DiscardRedo();
         Session.PublishOperation(Engine.ClearCanvas());
         Status = "Відомі об'єкти видалено.";
     }
 
     public Snapshot GetSnapshot() => Engine.CreateSnapshot();
+
+    public void Undo()
+    {
+        EndStroke();
+        if (!history.Undo())
+        {
+            Status = "Дію пропущено: об'єкт змінено іншим учасником або видалено.";
+        }
+    }
+
+    public void Redo()
+    {
+        EndStroke();
+        if (!history.Redo())
+        {
+            Status = "Повторення пропущено: об'єкт чи шар уже змінено або видалено.";
+        }
+    }
 
     private void OnSessionPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
     {

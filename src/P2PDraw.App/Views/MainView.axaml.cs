@@ -96,6 +96,9 @@ public partial class MainView : UserControl
         }
     }
 
+    private void OnUndoClicked(object? sender, RoutedEventArgs eventArgs) => Model?.Undo();
+    private void OnRedoClicked(object? sender, RoutedEventArgs eventArgs) => Model?.Redo();
+
     private void OnSessionClicked(object? sender, RoutedEventArgs eventArgs)
     {
         NetworkPanel.IsVisible = !NetworkPanel.IsVisible;
