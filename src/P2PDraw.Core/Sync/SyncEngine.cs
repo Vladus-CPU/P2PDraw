@@ -6,6 +6,7 @@ namespace P2PDraw.Core.Sync;
 
 public sealed class SyncEngine
 {
+    public const int MaxPointsPerAppend = 1024;
     private readonly object stateLock = new();
     private readonly LamportClock clock = new();
     private DocumentState document = new();
@@ -182,9 +183,10 @@ public sealed class SyncEngine
     public StrokeAppend AppendStroke(Guid strokeId, IEnumerable<StrokePoint> points)
     {
         var batch = points.ToImmutableArray();
-        if (batch.IsEmpty || batch.Any(point => !double.IsFinite(point.X) || !double.IsFinite(point.Y)))
+        if (batch.IsEmpty || batch.Length > MaxPointsPerAppend
+            || batch.Any(point => !double.IsFinite(point.X) || !double.IsFinite(point.Y)))
         {
-            throw new ArgumentException("A batch must contain finite points.");
+            throw new ArgumentException($"A batch must contain 1 to {MaxPointsPerAppend} finite points.");
         }
 
         lock (stateLock)
@@ -198,6 +200,32 @@ public sealed class SyncEngine
             var operation = new StrokeAppend(NextStamp(), strokeId, stroke.Points.Length, batch);
             document.Apply(operation);
             return operation;
+        }
+    }
+
+    public ImmutableArray<StrokeAppend> AppendStrokeBatches(Guid strokeId, IEnumerable<StrokePoint> points)
+    {
+        var batch = points.ToImmutableArray();
+        if (batch.IsEmpty || batch.Any(point => !double.IsFinite(point.X) || !double.IsFinite(point.Y)))
+        {
+            throw new ArgumentException("A batch must contain finite points.");
+        }
+        lock (stateLock)
+        {
+            var stroke = GetEditableStroke(strokeId);
+            if (batch.Length > int.MaxValue - stroke.Points.Length)
+            {
+                throw new ArgumentException("Too many stroke points.");
+            }
+            var operations = ImmutableArray.CreateBuilder<StrokeAppend>();
+            int offset = 0;
+            while (offset < batch.Length)
+            {
+                int count = Math.Min(MaxPointsPerAppend, batch.Length - offset);
+                operations.Add(AppendStroke(strokeId, batch.Slice(offset, count)));
+                offset += count;
+            }
+            return operations.ToImmutable();
         }
     }
 
