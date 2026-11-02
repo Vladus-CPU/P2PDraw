@@ -5,6 +5,36 @@ namespace P2PDraw.App.Controls;
 
 public static class CanvasGeometry
 {
+    public static StrokePoint[] GetResizeHandles(Shape shape)
+    {
+        if (shape.Kind == ShapeKind.Line)
+        {
+            return
+            [
+                new(shape.Start.X + shape.Offset.X, shape.Start.Y + shape.Offset.Y),
+                new(shape.End.X + shape.Offset.X, shape.End.Y + shape.Offset.Y)
+            ];
+        }
+        var bounds = GetBounds(shape);
+        return
+        [
+            new(bounds.Left, bounds.Top), new(bounds.Right, bounds.Top),
+            new(bounds.Right, bounds.Bottom), new(bounds.Left, bounds.Bottom)
+        ];
+    }
+
+    public static Shape Resize(Shape shape, int handleIndex, StrokePoint position)
+    {
+        var localPosition = new StrokePoint(position.X - shape.Offset.X, position.Y - shape.Offset.Y);
+        if (shape.Kind == ShapeKind.Line)
+        {
+            return handleIndex == 0 ? shape with { Start = localPosition } : shape with { End = localPosition };
+        }
+        var opposite = GetResizeHandles(shape)[(handleIndex + 2) % 4];
+        var localOpposite = new StrokePoint(opposite.X - shape.Offset.X, opposite.Y - shape.Offset.Y);
+        return shape with { Start = localPosition, End = localOpposite };
+    }
+
     public static Rect GetBounds(Shape shape)
     {
         double left = Math.Min(shape.Start.X, shape.End.X) + shape.Offset.X;

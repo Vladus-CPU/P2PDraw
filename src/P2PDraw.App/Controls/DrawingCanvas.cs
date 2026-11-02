@@ -35,10 +35,14 @@ public sealed class DrawingCanvas : Control
     private StrokePoint dragStart;
     private StrokePoint dragPosition;
     private StrokePoint initialOffset;
+    private Shape? resizingShape;
+    private int resizingHandle;
+    private bool touchInput;
     public Guid? SelectedObjectId { get; private set; }
     public event Action<Guid?>? SelectionChanged;
     public event Action<ShapeKind, StrokePoint, StrokePoint>? ShapeCreated;
     public event Action<Guid, StrokePoint>? ObjectMoved;
+    public event Action<Guid, StrokePoint, StrokePoint>? ShapeResized;
     public event Action<Guid>? ObjectDeleted;
 
     public IReadOnlyList<Shape>? Shapes
@@ -162,6 +166,17 @@ public sealed class DrawingCanvas : Control
         {
             var outline = new Pen(Brushes.DodgerBlue, 1.5 / Zoom);
             context.DrawRectangle(null, outline, bounds.Inflate(5 / Zoom));
+            if (FindShape(selected) is Shape selectedShape)
+            {
+                var displayedShape = DisplayShape(selectedShape);
+                displayedShape = displayedShape with { Offset = DisplayOffset(selected, displayedShape.Offset) };
+                double handleSize = (touchInput ? 20 : 10) / Zoom;
+                foreach (var handle in CanvasGeometry.GetResizeHandles(displayedShape))
+                {
+                    var handleBounds = new Rect(handle.X - handleSize / 2, handle.Y - handleSize / 2, handleSize, handleSize);
+                    context.DrawRectangle(Brushes.White, outline, handleBounds);
+                }
+            }
         }
     }
 
@@ -202,9 +217,10 @@ public sealed class DrawingCanvas : Control
             {
                 continue;
             }
-            var offset = DisplayOffset(shape.ShapeId, shape.Offset);
-            DrawShape(context, shape.Kind, new(shape.Start.X + offset.X, shape.Start.Y + offset.Y),
-                new(shape.End.X + offset.X, shape.End.Y + offset.Y), shape.Color, shape.Width, shape.Fill);
+            var displayed = DisplayShape(shape);
+            var offset = DisplayOffset(shape.ShapeId, displayed.Offset);
+            DrawShape(context, displayed.Kind, new(displayed.Start.X + offset.X, displayed.Start.Y + offset.Y),
+                new(displayed.End.X + offset.X, displayed.End.Y + offset.Y), displayed.Color, displayed.Width, displayed.Fill);
         }
     }
 
@@ -212,6 +228,7 @@ public sealed class DrawingCanvas : Control
     {
         base.OnPointerPressed(eventArgs);
         Focus();
+        touchInput = eventArgs.Pointer.Type == PointerType.Touch;
         if (eventArgs.Pointer.Type == PointerType.Touch)
         {
             if (panPointer is not null || drawingPointer is not null && drawingPointer.Type != PointerType.Touch)
@@ -509,6 +526,7 @@ public sealed class DrawingCanvas : Control
     public void ClearSelection()
     {
         SelectedObjectId = null;
+        resizingShape = null;
         SelectionChanged?.Invoke(null);
         InvalidateVisual();
     }
@@ -589,12 +607,28 @@ public sealed class DrawingCanvas : Control
     {
         dragStart = point;
         dragPosition = point;
+        resizingShape = null;
         if (tool == DrawingTool.Brush)
         {
             StrokeStarted?.Invoke(point);
         }
         else if (tool == DrawingTool.Select)
         {
+            if (SelectedObjectId is Guid previous && FindShape(previous) is Shape shape)
+            {
+                var handles = CanvasGeometry.GetResizeHandles(shape);
+                double tolerance = (touchInput ? 14 : 7) / Zoom;
+                for (int index = 0; index < handles.Length; index++)
+                {
+                    if (Math.Abs(point.X - handles[index].X) <= tolerance && Math.Abs(point.Y - handles[index].Y) <= tolerance)
+                    {
+                        resizingShape = shape;
+                        resizingHandle = index;
+                        InvalidateVisual();
+                        return;
+                    }
+                }
+            }
             SelectedObjectId = HitTestObject(point, drawingPointer?.Type == PointerType.Touch);
             initialOffset = default;
             if (SelectedObjectId is Guid selected)
@@ -626,15 +660,45 @@ public sealed class DrawingCanvas : Control
         {
             if (tool == DrawingTool.Select && SelectedObjectId is Guid selected)
             {
-                var offset = new StrokePoint(initialOffset.X + dragPosition.X - dragStart.X, initialOffset.Y + dragPosition.Y - dragStart.Y);
-                ObjectMoved?.Invoke(selected, offset);
+                if (resizingShape is Shape original)
+                {
+                    var resized = CanvasGeometry.Resize(original, resizingHandle, dragPosition);
+                    ShapeResized?.Invoke(selected, resized.Start, resized.End);
+                }
+                else
+                {
+                    var offset = new StrokePoint(initialOffset.X + dragPosition.X - dragStart.X, initialOffset.Y + dragPosition.Y - dragStart.Y);
+                    ObjectMoved?.Invoke(selected, offset);
+                }
             }
             else if (tool != DrawingTool.Select)
             {
                 ShapeCreated?.Invoke(ToolShapeKind(), dragStart, dragPosition);
             }
         }
+        resizingShape = null;
         InvalidateVisual();
+    }
+
+    private Shape? FindShape(Guid objectId)
+    {
+        foreach (var shape in Shapes ?? [])
+        {
+            if (shape.ShapeId == objectId)
+            {
+                return shape;
+            }
+        }
+        return null;
+    }
+
+    private Shape DisplayShape(Shape shape)
+    {
+        if (strokeStarted && resizingShape?.ShapeId == shape.ShapeId)
+        {
+            return CanvasGeometry.Resize(resizingShape, resizingHandle, dragPosition) with { Offset = shape.Offset };
+        }
+        return shape;
     }
 
     private StrokePoint FindOffset(Guid objectId)
@@ -669,7 +733,8 @@ public sealed class DrawingCanvas : Control
         {
             if (shape.ShapeId == objectId)
             {
-                return CanvasGeometry.GetBounds(shape with { Offset = DisplayOffset(objectId, shape.Offset) });
+                var displayed = DisplayShape(shape);
+                return CanvasGeometry.GetBounds(displayed with { Offset = DisplayOffset(objectId, displayed.Offset) });
             }
         }
         return null;
@@ -677,7 +742,7 @@ public sealed class DrawingCanvas : Control
 
     private StrokePoint DisplayOffset(Guid objectId, StrokePoint offset)
     {
-        if (tool == DrawingTool.Select && strokeStarted && SelectedObjectId == objectId)
+        if (tool == DrawingTool.Select && strokeStarted && resizingShape is null && SelectedObjectId == objectId)
         {
             return new(initialOffset.X + dragPosition.X - dragStart.X, initialOffset.Y + dragPosition.Y - dragStart.Y);
         }
