@@ -181,7 +181,8 @@ public partial class EditorTests
             var canvas = view.FindControl<DrawingCanvas>("DrawingSurface")!;
             Assert.False(expander.IsExpanded);
             Assert.True(canvas.Bounds.Width >= width - 40);
-            Assert.True(canvas.Bounds.Height > height * 0.35, $"Canvas: {canvas.Bounds}; window: {window.Bounds}");
+            Assert.True(canvas.Bounds.Height > height * 0.35,
+                $"Canvas: {canvas.Bounds}; header: {view.FindControl<Grid>("HeaderGrid")!.Bounds}; tools: {view.FindControl<Border>("BrushPanel")!.Bounds}; footer: {view.FindControl<Grid>("FooterGrid")!.Bounds}; window: {window.Bounds}");
             var clear = view.FindControl<Button>("ClearButton")!;
             Point clearPosition = clear.TranslatePoint(new Point(clear.Bounds.Width, clear.Bounds.Height), window)!.Value;
             Assert.InRange(clearPosition.X, 0, window.Bounds.Width);

@@ -1,10 +1,12 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Input;
 using Avalonia.Media;
 using P2PDraw.App.Controls;
 using P2PDraw.App.Documents;
 using P2PDraw.App.ViewModels;
+using P2PDraw.Core.Models;
 using P2PDraw.Core.Storage;
 
 namespace P2PDraw.App.Views;
@@ -32,12 +34,29 @@ public partial class MainView : UserControl
             if (Model is not null)
             {
                 Model.LayerEditor.SelectedObjectId = selected;
+                var shape = Model.Shapes.FirstOrDefault(item => item.ShapeId == selected);
+                string name = shape?.Kind switch
+                {
+                    ShapeKind.Line => "лінія",
+                    ShapeKind.Rectangle => "прямокутник",
+                    ShapeKind.Ellipse => "еліпс",
+                    _ => "штрих"
+                };
+                SelectionInfo.Text = selected is null ? "" : $"Вибрано: {name}";
             }
         };
         LayerSide.CloseRequested += () => LayerSide.IsVisible = false;
         LayerSide.ClearRequested += () => ConfirmLayerAction(false);
         LayerSide.RemoveRequested += () => ConfirmLayerAction(true);
         SizeChanged += OnSizeChanged;
+        Loaded += (_, _) =>
+        {
+            var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
+            ExportSvgButton.IsEnabled = storage?.CanSave == true;
+            ExportPngButton.IsEnabled = storage?.CanSave == true;
+            SaveProjectButton.IsEnabled = storage?.CanSave == true;
+            OpenProjectButton.IsEnabled = storage?.CanOpen == true;
+        };
         BodyGrid.SizeChanged += (_, eventArgs) =>
         {
             NetworkPanel.MaxHeight = eventArgs.NewSize.Height;
@@ -51,7 +70,18 @@ public partial class MainView : UserControl
 
     private void OnSizeChanged(object? sender, SizeChangedEventArgs eventArgs)
     {
-        bool compact = eventArgs.NewSize.Width < 1000 || eventArgs.NewSize.Height < 600;
+        bool shortScreen = eventArgs.NewSize.Height < 600;
+        bool compact = eventArgs.NewSize.Width < 1000 || shortScreen;
+        int margin = compact ? 8 : 16;
+        if (shortScreen)
+        {
+            margin = 6;
+        }
+        RootGrid.Margin = new Thickness(margin);
+        HeaderGrid.Margin = new Thickness(0, 0, 0, shortScreen ? 4 : 10);
+        BrushPanel.Margin = new Thickness(0, 0, 0, shortScreen ? 4 : 10);
+        FooterGrid.Margin = new Thickness(0, shortScreen ? 4 : 6, 0, 0);
+        StatusText.MaxHeight = shortScreen ? 16 : 32;
         if (isCompact == compact)
         {
             return;
@@ -61,10 +91,9 @@ public partial class MainView : UserControl
         Grid.SetColumn(LayerSide, compact ? 0 : 1);
         LayerSide.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right;
         LayerSide.Width = compact ? 300 : 240;
-        RootGrid.Margin = new Thickness(compact ? 8 : 16);
         AppTitle.FontSize = compact ? 21 : 27;
         NetworkPanel.Padding = new Thickness(compact ? 4 : 14);
-        BrushPanel.Padding = new Thickness(compact ? 8 : 14);
+        BrushPanel.Padding = new Thickness(compact ? 6 : 10);
         NetworkScroll.MaxHeight = compact ? 260 : 440;
     }
 
@@ -164,7 +193,9 @@ public partial class MainView : UserControl
         }
         catch (ArgumentException)
         {
-            model.Session.Status = "Перевірте координати й розмір документа. PNG підтримує до 4096 px на сторону.";
+            model.Session.Status = png
+                ? "PNG підтримує до 4096 px на сторону та 16 Мп загалом. Для більшого документа виберіть SVG."
+                : "Не вдалося визначити межі документа. Перевірте координати об'єктів.";
         }
         catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is InvalidOperationException)
         {
@@ -250,6 +281,10 @@ public partial class MainView : UserControl
                 DrawingSurface.ResetView();
                 model.Session.Status = $"«{file.Name}» відкрито як нову сесію.";
             }
+            else
+            {
+                model.Session.Status = "Завершіть поточне підключення та спробуйте відкрити файл ще раз.";
+            }
         }
         catch (OperationCanceledException)
         {
@@ -326,6 +361,36 @@ public partial class MainView : UserControl
     }
 
     private void OnResetViewClicked(object? sender, RoutedEventArgs eventArgs) => DrawingSurface.ResetView();
+    private void OnZoomInClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        var center = new Point(DrawingSurface.Bounds.Width / 2, DrawingSurface.Bounds.Height / 2);
+        DrawingSurface.ZoomAt(1.2, center);
+    }
+
+    private void OnZoomOutClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        var center = new Point(DrawingSurface.Bounds.Width / 2, DrawingSurface.Bounds.Height / 2);
+        DrawingSurface.ZoomAt(1 / 1.2, center);
+    }
+
+    protected override void OnKeyDown(KeyEventArgs eventArgs)
+    {
+        base.OnKeyDown(eventArgs);
+        if (eventArgs.Key == Key.Escape)
+        {
+            if (ConfirmationOverlay.IsVisible)
+            {
+                CloseConfirmation();
+            }
+            FilesPanel.IsVisible = false;
+            NetworkPanel.IsVisible = false;
+            if (isCompact == true)
+            {
+                LayerSide.IsVisible = false;
+            }
+            eventArgs.Handled = true;
+        }
+    }
 
     protected override void OnDataContextChanged(EventArgs eventArgs)
     {

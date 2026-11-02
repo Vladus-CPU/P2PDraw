@@ -37,43 +37,74 @@
             <Button x:Name="SessionButton" Grid.Column="2" Content="Сесія" Click="OnSessionClicked" ToolTip.Tip="Створення сесії та підключення" />
         </Grid>
         <Border x:Name="BrushPanel" Grid.Row="1" Background="White" CornerRadius="9" BorderBrush="#D7DFEA" BorderThickness="1" Padding="8" Margin="0,0,0,10">
-            <WrapPanel Orientation="Horizontal">
-                <Button x:Name="SelectTool" Classes="tool" Tag="Select" Click="OnToolClicked" ToolTip.Tip="Вибір і переміщення" Margin="0,0,4,2">
-                    <Path Data="M3,2 L3,19 8,14 12,22 15,20 11,13 18,12 Z" Fill="{Binding $parent[Button].Foreground}" Width="22" Height="22" Stretch="Uniform" />
-                </Button>
-                <Button x:Name="BrushTool" Classes="tool selected" Tag="Brush" Click="OnToolClicked" ToolTip.Tip="Пензель" Margin="0,0,4,2">
-                    <Path Data="M3,16 L4,12 14,2 18,6 8,16 Z M4,12 L8,16" Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1.8" Width="22" Height="22" Stretch="Uniform" />
-                </Button>
-                <Button x:Name="LineTool" Classes="tool" Tag="Line" Click="OnToolClicked" ToolTip.Tip="Пряма лінія" Margin="0,0,4,2">
-                    <Path Data="M2,20 L20,2" Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="2" Width="22" Height="22" Stretch="Uniform" />
-                </Button>
-                <Button x:Name="RectangleTool" Classes="tool" Tag="Rectangle" Click="OnToolClicked" ToolTip.Tip="Прямокутник" Margin="0,0,4,2">
-                    <Path Data="M2,3 L20,3 20,19 2,19 Z" Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1.8" Width="22" Height="22" Stretch="Uniform" />
-                </Button>
-                <Button x:Name="EllipseTool" Classes="tool" Tag="Ellipse" Click="OnToolClicked" ToolTip.Tip="Еліпс" Margin="0,0,4,2">
-                    <Ellipse Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1.8" Width="22" Height="18" />
-                </Button>
-                <Button x:Name="DeleteButton" Classes="tool" Click="OnDeleteClicked" IsEnabled="False" ToolTip.Tip="Видалити об'єкт" Margin="0,0,8,2">
-                    <Path Data="M3,5 L19,5 M8,5 L8,2 14,2 14,5 M5,5 L6,21 16,21 17,5 M9,9 L9,17 M13,9 L13,17" Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1.7" Width="22" Height="22" Stretch="Uniform" />
-                </Button>
-                <Button x:Name="DuplicateButton" Classes="tool" Content="⧉" Click="OnDuplicateClicked" IsEnabled="False" ToolTip.Tip="Дублювати об'єкт" Margin="0,0,4,2" />
-                <Button x:Name="UndoButton" Classes="tool" Content="↶" Click="OnUndoClicked" IsEnabled="{Binding CanUndo}" ToolTip.Tip="Скасувати локальну дію" Margin="0,0,4,2" />
-                <Button x:Name="RedoButton" Classes="tool" Content="↷" Click="OnRedoClicked" IsEnabled="{Binding CanRedo}" ToolTip.Tip="Повторити локальну дію" Margin="0,0,4,2" />
-                <ComboBox x:Name="BrushColors" Width="104" MinHeight="44" Margin="0,0,8,2" SelectedIndex="0" SelectionChanged="OnColorChanged" ToolTip.Tip="Колір контуру">
-                    <ComboBoxItem Content="Чорний" Tag="#FF253449" />
-                    <ComboBoxItem Content="Синій" Tag="#FF2563EB" />
-                    <ComboBoxItem Content="Червоний" Tag="#FFDC2626" />
-                    <ComboBoxItem Content="Зелений" Tag="#FF16835D" />
-                    <ComboBoxItem Content="Фіолетовий" Tag="#FF7C3AED" />
-                </ComboBox>
-                <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,8,2" VerticalAlignment="Center">
-                    <Slider x:Name="BrushSize" Width="85" Minimum="1" Maximum="20" TickFrequency="1" IsSnapToTickEnabled="True"
-                            Value="{Binding BrushWidth, Mode=TwoWay}" ToolTip.Tip="Товщина контуру" />
-                    <TextBlock Text="{Binding BrushWidth, StringFormat='{}{0:0} px'}" Width="36" VerticalAlignment="Center" />
-                </StackPanel>
-                <CheckBox Content="Заливка" IsChecked="{Binding FillShapes, Mode=TwoWay}" MinHeight="44" Margin="0,0,8,2" />
-                <Button x:Name="ClearButton" Content="Очистити полотно" Click="OnClearClicked" Foreground="#A52D36" ToolTip.Tip="Видалити відомі об'єкти на всіх шарах" />
-            </WrapPanel>
+            <Grid RowDefinitions="Auto,Auto">
+                <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="SelectTool" Classes="tool" Tag="Select" Click="OnToolClicked" ToolTip.Tip="Вибір і переміщення" Margin="0,0,4,2">
+                            <Path Data="M3,2 L3,19 8,14 12,22 15,20 11,13 18,12 Z" Fill="{Binding $parent[Button].Foreground}" Width="22" Height="22" Stretch="Uniform" />
+                        </Button>
+                        <Button x:Name="BrushTool" Classes="tool selected" Tag="Brush" Click="OnToolClicked" ToolTip.Tip="Пензель" Margin="0,0,4,2">
+                            <Path Data="M3,16 L4,12 14,2 18,6 8,16 Z M4,12 L8,16" Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1.8" Width="22" Height="22" Stretch="Uniform" />
+                        </Button>
+                        <Button x:Name="LineTool" Classes="tool" Tag="Line" Click="OnToolClicked" ToolTip.Tip="Пряма лінія" Margin="0,0,4,2">
+                            <Path Data="M2,20 L20,2" Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="2" Width="22" Height="22" Stretch="Uniform" />
+                        </Button>
+                        <Button x:Name="RectangleTool" Classes="tool" Tag="Rectangle" Click="OnToolClicked" ToolTip.Tip="Прямокутник" Margin="0,0,4,2">
+                            <Path Data="M2,3 L20,3 20,19 2,19 Z" Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1.8" Width="22" Height="22" Stretch="Uniform" />
+                        </Button>
+                        <Button x:Name="EllipseTool" Classes="tool" Tag="Ellipse" Click="OnToolClicked" ToolTip.Tip="Еліпс" Margin="0,0,4,2">
+                            <Ellipse Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1.8" Width="22" Height="18" />
+                        </Button>
+                        <Button x:Name="DeleteButton" Classes="tool" Click="OnDeleteClicked" IsEnabled="False" ToolTip.Tip="Видалити об'єкт" Margin="0,0,8,2">
+                            <Path Data="M3,5 L19,5 M8,5 L8,2 14,2 14,5 M5,5 L6,21 16,21 17,5 M9,9 L9,17 M13,9 L13,17" Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1.7" Width="22" Height="22" Stretch="Uniform" />
+                        </Button>
+                        <Button x:Name="DuplicateButton" Classes="tool" Content="⧉" Click="OnDuplicateClicked" IsEnabled="False" ToolTip.Tip="Дублювати об'єкт" Margin="0,0,4,2" />
+                        <Button x:Name="UndoButton" Classes="tool" Content="↶" Click="OnUndoClicked" IsEnabled="{Binding CanUndo}" ToolTip.Tip="Скасувати локальну дію" Margin="0,0,4,2" />
+                        <Button x:Name="RedoButton" Classes="tool" Content="↷" Click="OnRedoClicked" IsEnabled="{Binding CanRedo}" ToolTip.Tip="Повторити локальну дію" Margin="0,0,4,2" />
+                    </StackPanel>
+                </ScrollViewer>
+                <WrapPanel Grid.Row="1" Orientation="Horizontal">
+                    <ComboBox x:Name="BrushColors" Width="136" MinHeight="44" Margin="0,0,8,2" SelectedIndex="0" SelectionChanged="OnColorChanged" ToolTip.Tip="Колір контуру">
+                        <ComboBoxItem Tag="#FF253449">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Border Width="14" Height="14" CornerRadius="3" Background="#253449" />
+                                <TextBlock Text="Чорний" />
+                            </StackPanel>
+                        </ComboBoxItem>
+                        <ComboBoxItem Tag="#FF2563EB">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Border Width="14" Height="14" CornerRadius="3" Background="#2563EB" />
+                                <TextBlock Text="Синій" />
+                            </StackPanel>
+                        </ComboBoxItem>
+                        <ComboBoxItem Tag="#FFDC2626">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Border Width="14" Height="14" CornerRadius="3" Background="#DC2626" />
+                                <TextBlock Text="Червоний" />
+                            </StackPanel>
+                        </ComboBoxItem>
+                        <ComboBoxItem Tag="#FF16835D">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Border Width="14" Height="14" CornerRadius="3" Background="#16835D" />
+                                <TextBlock Text="Зелений" />
+                            </StackPanel>
+                        </ComboBoxItem>
+                        <ComboBoxItem Tag="#FF7C3AED">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Border Width="14" Height="14" CornerRadius="3" Background="#7C3AED" />
+                                <TextBlock Text="Фіолетовий" />
+                            </StackPanel>
+                        </ComboBoxItem>
+                    </ComboBox>
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,8,2" VerticalAlignment="Center">
+                        <Slider x:Name="BrushSize" Width="85" Minimum="1" Maximum="20" TickFrequency="1" IsSnapToTickEnabled="True"
+                                Value="{Binding BrushWidth, Mode=TwoWay}" ToolTip.Tip="Товщина контуру" />
+                        <TextBlock Text="{Binding BrushWidth, StringFormat='{}{0:0} px'}" Width="36" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <CheckBox Content="Заливка" IsChecked="{Binding FillShapes, Mode=TwoWay}" MinHeight="44" Margin="0,0,8,2" />
+                    <Button x:Name="ClearButton" Content="Очистити полотно" Click="OnClearClicked" Foreground="#A52D36" ToolTip.Tip="Видалити відомі об'єкти на всіх шарах" />
+                </WrapPanel>
+            </Grid>
         </Border>
         <Grid x:Name="BodyGrid" Grid.Row="2" ColumnDefinitions="*,Auto">
             <Border BorderBrush="#CCD5E1" BorderThickness="1" Background="White" CornerRadius="4" ClipToBounds="True">
@@ -81,6 +112,14 @@
                                         VisibleLayerIds="{Binding LayerEditor.VisibleLayerIds}" SelectableLayerIds="{Binding LayerEditor.SelectableLayerIds}"
                                         CanDraw="{Binding LayerEditor.CanDraw}"
                                         StrokeColor="{Binding BrushColor}" StrokeWidth="{Binding BrushWidth}" FillShapes="{Binding FillShapes}" />
+            </Border>
+            <Border Background="#EEFFFFFF" BorderBrush="#CCD5E1" BorderThickness="1" CornerRadius="6" Padding="3"
+                    HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="8">
+                <StackPanel Orientation="Horizontal" Spacing="3">
+                    <Button x:Name="ZoomOutButton" Content="−" Width="40" Padding="4" Click="OnZoomOutClicked" ToolTip.Tip="Зменшити масштаб" />
+                    <Button x:Name="ResetZoomButton" Content="100%" Width="56" Padding="4" Click="OnResetViewClicked" ToolTip.Tip="Повернути масштаб 100% і центр полотна" />
+                    <Button x:Name="ZoomInButton" Content="+" Width="40" Padding="4" Click="OnZoomInClicked" ToolTip.Tip="Збільшити масштаб" />
+                </StackPanel>
             </Border>
             <views:LayersPanel x:Name="LayerSide" Grid.Column="1" Width="240" Margin="8,0,0,0" DataContext="{Binding LayerEditor}" />
             <Border x:Name="NetworkPanel" Grid.ColumnSpan="2" IsVisible="False" MaxWidth="440" HorizontalAlignment="Right" VerticalAlignment="Top"
@@ -136,16 +175,17 @@
                         <CheckBox x:Name="VisibleContentOnly" Content="Експортувати лише видимі шари" IsChecked="True" />
                         <Button x:Name="ExportSvgButton" Content="Експорт SVG" Click="OnExportSvgClicked" />
                         <Button x:Name="ExportPngButton" Content="Експорт PNG" Click="OnExportPngClicked" />
+                        <TextBlock Text="{Binding Status}" Classes="label" TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>
             </Border>
         </Grid>
-        <Grid x:Name="FooterGrid" Grid.Row="3" ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="8" Margin="0,8,0,0">
-            <TextBlock Text="{Binding Status}" Classes="label" TextTrimming="CharacterEllipsis" MaxHeight="32" VerticalAlignment="Center" />
-            <Button x:Name="FilesButton" Grid.Column="1" Content="Файл" Click="OnFilesClicked" Padding="8,2" />
-            <Button x:Name="LayersButton" Grid.Column="2" Content="Шари" Click="OnLayersClicked" Padding="8,2" />
-            <TextBlock Grid.Column="3" Text="{Binding ObjectCount, StringFormat='Об’єктів: {0}'}" Classes="label" VerticalAlignment="Center" />
-            <Button x:Name="ResetZoomButton" Grid.Column="4" Content="100%" Click="OnResetViewClicked" ToolTip.Tip="Повернути масштаб 100% і центр полотна" MinHeight="32" Padding="8,2" />
+        <Grid x:Name="FooterGrid" Grid.Row="3" RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="4" Margin="0,6,0,0">
+            <TextBlock x:Name="StatusText" Grid.ColumnSpan="4" Text="{Binding Status}" Classes="label" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="32" ToolTip.Tip="{Binding Status}" />
+            <TextBlock x:Name="SelectionInfo" Grid.Row="1" Classes="label" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+            <Button x:Name="FilesButton" Grid.Row="1" Grid.Column="1" Content="Файл" Click="OnFilesClicked" Padding="8,2" />
+            <Button x:Name="LayersButton" Grid.Row="1" Grid.Column="2" Content="Шари" Click="OnLayersClicked" Padding="8,2" />
+            <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding ObjectCount, StringFormat='Об’єктів: {0}'}" Classes="label" VerticalAlignment="Center" />
         </Grid>
         <Border x:Name="ConfirmationOverlay" Grid.RowSpan="4" Background="#66000000" IsVisible="False">
             <Border Background="White" CornerRadius="10" Padding="20" Margin="12" MaxWidth="400" HorizontalAlignment="Center" VerticalAlignment="Center">
