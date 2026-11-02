@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using P2PDraw.App.Controls;
 using P2PDraw.App.ViewModels;
 
 namespace P2PDraw.App.Views;
@@ -17,6 +18,10 @@ public partial class MainView : UserControl
         DrawingSurface.StrokeContinued += point => Model?.AppendStroke(point);
         DrawingSurface.StrokeFinished += () => Model?.EndStroke();
         DrawingSurface.ViewChanged += () => ResetZoomButton.Content = $"{DrawingSurface.Zoom:P0}";
+        DrawingSurface.ShapeCreated += (kind, start, end) => Model?.AddShape(kind, start, end);
+        DrawingSurface.ObjectMoved += (objectId, offset) => Model?.MoveObject(objectId, offset);
+        DrawingSurface.ObjectDeleted += objectId => Model?.RemoveObject(objectId);
+        DrawingSurface.SelectionChanged += selected => DeleteButton.IsEnabled = selected is not null;
         SizeChanged += OnSizeChanged;
         BodyGrid.SizeChanged += (_, eventArgs) =>
         {
@@ -41,6 +46,28 @@ public partial class MainView : UserControl
     }
 
     private MainWindowViewModel? Model => DataContext as MainWindowViewModel;
+
+    private void OnToolClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (sender is not Button button || button.Tag is not string name || !Enum.TryParse<DrawingTool>(name, out var tool))
+        {
+            return;
+        }
+        DrawingSurface.Tool = tool;
+        foreach (var item in new[] { SelectTool, BrushTool, LineTool, RectangleTool, EllipseTool })
+        {
+            item.Classes.Set("selected", item == button);
+        }
+    }
+
+    private void OnDeleteClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DrawingSurface.SelectedObjectId is Guid selected)
+        {
+            Model?.RemoveObject(selected);
+            DrawingSurface.ClearSelection();
+        }
+    }
 
     private void OnSessionClicked(object? sender, RoutedEventArgs eventArgs)
     {

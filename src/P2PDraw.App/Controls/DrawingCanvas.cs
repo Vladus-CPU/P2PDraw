@@ -6,10 +6,74 @@ using P2PDraw.Core.Models;
 
 namespace P2PDraw.App.Controls;
 
+public enum DrawingTool
+{
+    Select,
+    Brush,
+    Line,
+    Rectangle,
+    Ellipse
+}
+
 public sealed class DrawingCanvas : Control
 {
     public static readonly StyledProperty<IReadOnlyList<Stroke>?> StrokesProperty =
         AvaloniaProperty.Register<DrawingCanvas, IReadOnlyList<Stroke>?>(nameof(Strokes));
+
+    public static readonly StyledProperty<IReadOnlyList<Shape>?> ShapesProperty =
+        AvaloniaProperty.Register<DrawingCanvas, IReadOnlyList<Shape>?>(nameof(Shapes));
+    public static readonly StyledProperty<uint> StrokeColorProperty = AvaloniaProperty.Register<DrawingCanvas, uint>(nameof(StrokeColor), 0xFF253449);
+    public static readonly StyledProperty<double> StrokeWidthProperty = AvaloniaProperty.Register<DrawingCanvas, double>(nameof(StrokeWidth), 3);
+    public static readonly StyledProperty<bool> FillShapesProperty = AvaloniaProperty.Register<DrawingCanvas, bool>(nameof(FillShapes));
+
+    private DrawingTool tool = DrawingTool.Brush;
+    private StrokePoint dragStart;
+    private StrokePoint dragPosition;
+    private StrokePoint initialOffset;
+    public Guid? SelectedObjectId { get; private set; }
+    public event Action<Guid?>? SelectionChanged;
+    public event Action<ShapeKind, StrokePoint, StrokePoint>? ShapeCreated;
+    public event Action<Guid, StrokePoint>? ObjectMoved;
+    public event Action<Guid>? ObjectDeleted;
+
+    public IReadOnlyList<Shape>? Shapes
+    {
+        get => GetValue(ShapesProperty);
+        set => SetValue(ShapesProperty, value);
+    }
+
+    public uint StrokeColor
+    {
+        get => GetValue(StrokeColorProperty);
+        set => SetValue(StrokeColorProperty, value);
+    }
+
+    public double StrokeWidth
+    {
+        get => GetValue(StrokeWidthProperty);
+        set => SetValue(StrokeWidthProperty, value);
+    }
+
+    public bool FillShapes
+    {
+        get => GetValue(FillShapesProperty);
+        set => SetValue(FillShapesProperty, value);
+    }
+    public DrawingTool Tool
+    {
+        get => tool;
+        set
+        {
+            if (tool == value)
+            {
+                return;
+            }
+            FinishStroke(false);
+            tool = value;
+            ClearSelection();
+            Cursor = new Cursor(tool == DrawingTool.Select ? StandardCursorType.Arrow : StandardCursorType.Cross);
+        }
+    }
 
     private IPointer? drawingPointer;
     private IPointer? panPointer;
@@ -37,11 +101,12 @@ public sealed class DrawingCanvas : Control
 
     static DrawingCanvas()
     {
-        AffectsRender<DrawingCanvas>(StrokesProperty);
+        AffectsRender<DrawingCanvas>(StrokesProperty, ShapesProperty, StrokeColorProperty, StrokeWidthProperty, FillShapesProperty);
     }
 
     public DrawingCanvas()
     {
+        Focusable = true;
         ClipToBounds = true;
         Cursor = new Cursor(StandardCursorType.Cross);
     }
@@ -51,21 +116,18 @@ public sealed class DrawingCanvas : Control
         base.Render(context);
         var canvasBounds = new Rect(Bounds.Size);
         context.DrawRectangle(Brushes.White, null, canvasBounds);
-        if (Strokes is null)
-        {
-            return;
-        }
 
         using var clip = context.PushClip(canvasBounds);
         using var transform = context.PushTransform(Matrix.CreateScale(Zoom, Zoom) * Matrix.CreateTranslation(Pan));
-        foreach (var stroke in Strokes)
+        foreach (var stroke in Strokes ?? [])
         {
             if (stroke.Points.IsDefaultOrEmpty)
             {
                 continue;
             }
             var brush = new SolidColorBrush(Color.FromUInt32(stroke.Color));
-            var firstPoint = new Point(stroke.Points[0].X, stroke.Points[0].Y);
+            var offset = DisplayOffset(stroke.StrokeId, stroke.Offset);
+            var firstPoint = new Point(stroke.Points[0].X + offset.X, stroke.Points[0].Y + offset.Y);
             if (stroke.Points.Length == 1)
             {
                 context.DrawEllipse(brush, null, firstPoint, stroke.Width / 2, stroke.Width / 2);
@@ -79,18 +141,34 @@ public sealed class DrawingCanvas : Control
                 for (int i = 1; i < stroke.Points.Length; i++)
                 {
                     var point = stroke.Points[i];
-                    path.LineTo(new Point(point.X, point.Y));
+                    path.LineTo(new Point(point.X + offset.X, point.Y + offset.Y));
                 }
                 path.EndFigure(false);
             }
             var pen = new Pen(brush, stroke.Width, lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round);
             context.DrawGeometry(null, pen, geometry);
         }
+        foreach (var shape in Shapes ?? [])
+        {
+            var offset = DisplayOffset(shape.ShapeId, shape.Offset);
+            DrawShape(context, shape.Kind, new(shape.Start.X + offset.X, shape.Start.Y + offset.Y),
+                new(shape.End.X + offset.X, shape.End.Y + offset.Y), shape.Color, shape.Width, shape.Fill);
+        }
+        if (strokeStarted && tool != DrawingTool.Brush && tool != DrawingTool.Select)
+        {
+            DrawShape(context, ToolShapeKind(), dragStart, dragPosition, StrokeColor, StrokeWidth, PreviewFill());
+        }
+        if (SelectedObjectId is Guid selected && FindBounds(selected) is Rect bounds)
+        {
+            var outline = new Pen(Brushes.DodgerBlue, 1.5 / Zoom);
+            context.DrawRectangle(null, outline, bounds.Inflate(5 / Zoom));
+        }
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs eventArgs)
     {
         base.OnPointerPressed(eventArgs);
+        Focus();
         if (eventArgs.Pointer.Type == PointerType.Touch)
         {
             if (panPointer is not null || drawingPointer is not null && drawingPointer.Type != PointerType.Touch)
@@ -143,7 +221,7 @@ public sealed class DrawingCanvas : Control
         drawingPointer.Capture(this);
         lastPoint = GetCanvasPoint(eventArgs);
         strokeStarted = true;
-        StrokeStarted?.Invoke(lastPoint);
+        BeginAction(lastPoint);
         eventArgs.Handled = true;
     }
 
@@ -180,7 +258,7 @@ public sealed class DrawingCanvas : Control
                 return;
             }
             strokeStarted = true;
-            StrokeStarted?.Invoke(lastPoint);
+            BeginAction(lastPoint);
         }
         if (eventArgs.Pointer.Type == PointerType.Mouse && !eventArgs.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
@@ -191,7 +269,7 @@ public sealed class DrawingCanvas : Control
         if (point != lastPoint)
         {
             lastPoint = point;
-            StrokeContinued?.Invoke(point);
+            ContinueAction(point);
         }
         eventArgs.Handled = true;
     }
@@ -229,12 +307,12 @@ public sealed class DrawingCanvas : Control
         if (!strokeStarted)
         {
             strokeStarted = true;
-            StrokeStarted?.Invoke(lastPoint);
+            BeginAction(lastPoint);
         }
         var point = GetCanvasPoint(eventArgs);
         if (point != lastPoint)
         {
-            StrokeContinued?.Invoke(point);
+            ContinueAction(point);
         }
         FinishStroke();
         eventArgs.Handled = true;
@@ -254,13 +332,13 @@ public sealed class DrawingCanvas : Control
         }
         if (eventArgs.Pointer == drawingPointer)
         {
-            FinishStroke();
+            FinishStroke(false);
         }
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs eventArgs)
     {
-        FinishStroke();
+        FinishStroke(false);
         panPointer?.Capture(null);
         panPointer = null;
         foreach (var pointer in touches.Keys.ToArray())
@@ -344,7 +422,193 @@ public sealed class DrawingCanvas : Control
         gestureDistance = distance;
     }
 
-    private void FinishStroke()
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if ((change.Property == StrokesProperty || change.Property == ShapesProperty)
+            && SelectedObjectId is Guid selected && FindBounds(selected) is null)
+        {
+            ClearSelection();
+        }
+    }
+
+    protected override void OnKeyDown(KeyEventArgs eventArgs)
+    {
+        base.OnKeyDown(eventArgs);
+        if (eventArgs.Key == Key.Delete && SelectedObjectId is Guid selected)
+        {
+            ObjectDeleted?.Invoke(selected);
+            ClearSelection();
+            eventArgs.Handled = true;
+        }
+    }
+
+    public void ClearSelection()
+    {
+        SelectedObjectId = null;
+        SelectionChanged?.Invoke(null);
+        InvalidateVisual();
+    }
+
+    public Guid? HitTestObject(StrokePoint point, bool touch = false)
+    {
+        double tolerance = (touch ? 12 : 6) / Zoom;
+        if (Shapes is not null)
+        {
+            for (int index = Shapes.Count - 1; index >= 0; index--)
+            {
+                if (CanvasGeometry.Contains(Shapes[index], point, tolerance))
+                {
+                    return Shapes[index].ShapeId;
+                }
+            }
+        }
+        if (Strokes is not null)
+        {
+            for (int index = Strokes.Count - 1; index >= 0; index--)
+            {
+                if (CanvasGeometry.Contains(Strokes[index], point, tolerance))
+                {
+                    return Strokes[index].StrokeId;
+                }
+            }
+        }
+        return null;
+    }
+
+    private void BeginAction(StrokePoint point)
+    {
+        dragStart = point;
+        dragPosition = point;
+        if (tool == DrawingTool.Brush)
+        {
+            StrokeStarted?.Invoke(point);
+        }
+        else if (tool == DrawingTool.Select)
+        {
+            SelectedObjectId = HitTestObject(point, drawingPointer?.Type == PointerType.Touch);
+            initialOffset = default;
+            if (SelectedObjectId is Guid selected)
+            {
+                initialOffset = FindOffset(selected);
+            }
+            SelectionChanged?.Invoke(SelectedObjectId);
+        }
+        InvalidateVisual();
+    }
+
+    private void ContinueAction(StrokePoint point)
+    {
+        dragPosition = point;
+        if (tool == DrawingTool.Brush)
+        {
+            StrokeContinued?.Invoke(point);
+        }
+        InvalidateVisual();
+    }
+
+    private void EndAction(bool commit)
+    {
+        if (tool == DrawingTool.Brush)
+        {
+            StrokeFinished?.Invoke();
+        }
+        else if (commit && dragStart != dragPosition)
+        {
+            if (tool == DrawingTool.Select && SelectedObjectId is Guid selected)
+            {
+                var offset = new StrokePoint(initialOffset.X + dragPosition.X - dragStart.X, initialOffset.Y + dragPosition.Y - dragStart.Y);
+                ObjectMoved?.Invoke(selected, offset);
+            }
+            else if (tool != DrawingTool.Select)
+            {
+                ShapeCreated?.Invoke(ToolShapeKind(), dragStart, dragPosition);
+            }
+        }
+        InvalidateVisual();
+    }
+
+    private StrokePoint FindOffset(Guid objectId)
+    {
+        foreach (var stroke in Strokes ?? [])
+        {
+            if (stroke.StrokeId == objectId)
+            {
+                return stroke.Offset;
+            }
+        }
+        foreach (var shape in Shapes ?? [])
+        {
+            if (shape.ShapeId == objectId)
+            {
+                return shape.Offset;
+            }
+        }
+        return default;
+    }
+
+    private Rect? FindBounds(Guid objectId)
+    {
+        foreach (var stroke in Strokes ?? [])
+        {
+            if (stroke.StrokeId == objectId)
+            {
+                return CanvasGeometry.GetBounds(stroke with { Offset = DisplayOffset(objectId, stroke.Offset) });
+            }
+        }
+        foreach (var shape in Shapes ?? [])
+        {
+            if (shape.ShapeId == objectId)
+            {
+                return CanvasGeometry.GetBounds(shape with { Offset = DisplayOffset(objectId, shape.Offset) });
+            }
+        }
+        return null;
+    }
+
+    private StrokePoint DisplayOffset(Guid objectId, StrokePoint offset)
+    {
+        if (tool == DrawingTool.Select && strokeStarted && SelectedObjectId == objectId)
+        {
+            return new(initialOffset.X + dragPosition.X - dragStart.X, initialOffset.Y + dragPosition.Y - dragStart.Y);
+        }
+        return offset;
+    }
+
+    private ShapeKind ToolShapeKind() => tool switch
+    {
+        DrawingTool.Line => ShapeKind.Line,
+        DrawingTool.Rectangle => ShapeKind.Rectangle,
+        DrawingTool.Ellipse => ShapeKind.Ellipse,
+        _ => throw new InvalidOperationException("Choose a shape tool first.")
+    };
+
+    private uint? PreviewFill() => FillShapes && tool != DrawingTool.Line ? StrokeColor : null;
+
+    private static void DrawShape(DrawingContext context, ShapeKind kind, StrokePoint start, StrokePoint end, uint color, double width, uint? fill)
+    {
+        var pen = new Pen(new SolidColorBrush(Color.FromUInt32(color)), width);
+        var bounds = new Rect(Math.Min(start.X, end.X), Math.Min(start.Y, end.Y), Math.Abs(end.X - start.X), Math.Abs(end.Y - start.Y));
+        SolidColorBrush? fillBrush = null;
+        if (fill is uint fillColor)
+        {
+            fillBrush = new SolidColorBrush(Color.FromUInt32(fillColor));
+        }
+        switch (kind)
+        {
+            case ShapeKind.Line:
+                context.DrawLine(pen, new Point(start.X, start.Y), new Point(end.X, end.Y));
+                break;
+            case ShapeKind.Rectangle:
+                context.DrawRectangle(fillBrush, pen, bounds);
+                break;
+            case ShapeKind.Ellipse:
+                context.DrawEllipse(fillBrush, pen, bounds);
+                break;
+        }
+    }
+
+    private void FinishStroke(bool commit = true)
     {
         if (drawingPointer is null)
         {
@@ -356,7 +620,7 @@ public sealed class DrawingCanvas : Control
         strokeStarted = false;
         if (notify)
         {
-            StrokeFinished?.Invoke();
+            EndAction(commit);
         }
         pointer.Capture(null);
     }
