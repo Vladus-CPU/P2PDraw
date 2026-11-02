@@ -149,11 +149,21 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
             return false;
         }
         EndStroke();
-        var begin = Engine.BeginStroke(BrushColor, BrushWidth, LayerEditor.ActiveLayerId);
-        activeStrokeId = begin.StrokeId;
-        Session.PublishOperation(begin);
-        AppendStroke(point);
-        return true;
+        try
+        {
+            var begin = Engine.BeginStroke(BrushColor, BrushWidth, LayerEditor.ActiveLayerId);
+            activeStrokeId = begin.StrokeId;
+            Session.PublishOperation(begin);
+            AppendStroke(point);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            activeStrokeId = null;
+            RefreshDocument();
+            Status = "Активний шар видалено іншим учасником. Виберіть інший шар.";
+            return false;
+        }
     }
 
     public void AppendStroke(StrokePoint point)
@@ -209,6 +219,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         catch (ArgumentException)
         {
             Status = "Не вдалося створити фігуру. Перевірте її координати та товщину.";
+        }
+        catch (InvalidOperationException)
+        {
+            RefreshDocument();
+            Status = "Активний шар видалено іншим учасником. Виберіть інший шар.";
         }
     }
 
