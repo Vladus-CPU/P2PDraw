@@ -140,6 +140,7 @@ public sealed class TcpPeer : IAsyncDisposable
 
     public async Task SendOperationAsync(Operation operation, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         operation.Validate();
         Connection[] targets;
         lock (stateLock)
@@ -153,6 +154,7 @@ public sealed class TcpPeer : IAsyncDisposable
             sendingTasks.Add(SendAsync(connection, new OperationMessage(operation), cancellationToken));
         }
         await Task.WhenAll(sendingTasks);
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     public void DisconnectAll(bool reconnect = false)
