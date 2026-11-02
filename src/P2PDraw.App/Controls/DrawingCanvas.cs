@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using P2PDraw.App.Export;
 using P2PDraw.Core.Models;
 
 namespace P2PDraw.App.Controls;
@@ -160,7 +161,7 @@ public sealed class DrawingCanvas : Control
         }
         if (strokeStarted && tool != DrawingTool.Brush && tool != DrawingTool.Select)
         {
-            DrawShape(context, ToolShapeKind(), dragStart, dragPosition, StrokeColor, StrokeWidth, PreviewFill());
+            DocumentRenderer.DrawShape(context, ToolShapeKind(), dragStart, dragPosition, StrokeColor, StrokeWidth, PreviewFill());
         }
         if (SelectedObjectId is Guid selected && FindBounds(selected) is Rect bounds)
         {
@@ -188,28 +189,8 @@ public sealed class DrawingCanvas : Control
             {
                 continue;
             }
-            var brush = new SolidColorBrush(Color.FromUInt32(stroke.Color));
             var offset = DisplayOffset(stroke.StrokeId, stroke.Offset);
-            var firstPoint = new Point(stroke.Points[0].X + offset.X, stroke.Points[0].Y + offset.Y);
-            if (stroke.Points.Length == 1)
-            {
-                context.DrawEllipse(brush, null, firstPoint, stroke.Width / 2, stroke.Width / 2);
-                continue;
-            }
-
-            var geometry = new StreamGeometry();
-            using (var path = geometry.Open())
-            {
-                path.BeginFigure(firstPoint, false);
-                for (int i = 1; i < stroke.Points.Length; i++)
-                {
-                    var point = stroke.Points[i];
-                    path.LineTo(new Point(point.X + offset.X, point.Y + offset.Y));
-                }
-                path.EndFigure(false);
-            }
-            var pen = new Pen(brush, stroke.Width, lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round);
-            context.DrawGeometry(null, pen, geometry);
+            DocumentRenderer.DrawStroke(context, stroke, offset);
         }
         foreach (var shape in Shapes ?? [])
         {
@@ -219,8 +200,7 @@ public sealed class DrawingCanvas : Control
             }
             var displayed = DisplayShape(shape);
             var offset = DisplayOffset(shape.ShapeId, displayed.Offset);
-            DrawShape(context, displayed.Kind, new(displayed.Start.X + offset.X, displayed.Start.Y + offset.Y),
-                new(displayed.End.X + offset.X, displayed.End.Y + offset.Y), displayed.Color, displayed.Width, displayed.Fill);
+            DocumentRenderer.DrawShape(context, displayed with { Offset = offset });
         }
     }
 
@@ -758,29 +738,6 @@ public sealed class DrawingCanvas : Control
     };
 
     private uint? PreviewFill() => FillShapes && tool != DrawingTool.Line ? StrokeColor : null;
-
-    private static void DrawShape(DrawingContext context, ShapeKind kind, StrokePoint start, StrokePoint end, uint color, double width, uint? fill)
-    {
-        var pen = new Pen(new SolidColorBrush(Color.FromUInt32(color)), width);
-        var bounds = new Rect(Math.Min(start.X, end.X), Math.Min(start.Y, end.Y), Math.Abs(end.X - start.X), Math.Abs(end.Y - start.Y));
-        SolidColorBrush? fillBrush = null;
-        if (fill is uint fillColor)
-        {
-            fillBrush = new SolidColorBrush(Color.FromUInt32(fillColor));
-        }
-        switch (kind)
-        {
-            case ShapeKind.Line:
-                context.DrawLine(pen, new Point(start.X, start.Y), new Point(end.X, end.Y));
-                break;
-            case ShapeKind.Rectangle:
-                context.DrawRectangle(fillBrush, pen, bounds);
-                break;
-            case ShapeKind.Ellipse:
-                context.DrawEllipse(fillBrush, pen, bounds);
-                break;
-        }
-    }
 
     private void FinishStroke(bool commit = true)
     {

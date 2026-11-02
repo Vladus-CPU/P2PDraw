@@ -14,6 +14,7 @@ using Xunit;
 
 namespace P2PDraw.Tests.App;
 
+[Collection("Avalonia")]
 public partial class EditorTests
 {
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<P2PDraw.App.App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
