@@ -52,7 +52,7 @@
                 <Button x:Name="EllipseTool" Classes="tool" Tag="Ellipse" Click="OnToolClicked" ToolTip.Tip="Еліпс" Margin="0,0,4,2">
                     <Ellipse Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1.8" Width="22" Height="18" />
                 </Button>
-                <Button x:Name="DeleteButton" Classes="tool" Click="OnDeleteClicked" IsEnabled="False" ToolTip.Tip="Видалити вибраний об’єкт (Delete)" Margin="0,0,8,2">
+                <Button x:Name="DeleteButton" Classes="tool" Click="OnDeleteClicked" IsEnabled="False" ToolTip.Tip="Видалити об'єкт" Margin="0,0,8,2">
                     <Path Data="M3,5 L19,5 M8,5 L8,2 14,2 14,5 M5,5 L6,21 16,21 17,5 M9,9 L9,17 M13,9 L13,17" Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1.7" Width="22" Height="22" Stretch="Uniform" />
                 </Button>
                 <ComboBox x:Name="BrushColors" Width="104" MinHeight="44" Margin="0,0,8,2" SelectedIndex="0" SelectionChanged="OnColorChanged" ToolTip.Tip="Колір контуру">
@@ -68,7 +68,7 @@
                     <TextBlock Text="{Binding BrushWidth, StringFormat='{}{0:0} px'}" Width="36" VerticalAlignment="Center" />
                 </StackPanel>
                 <CheckBox Content="Заливка" IsChecked="{Binding FillShapes, Mode=TwoWay}" MinHeight="44" Margin="0,0,8,2" />
-                <Button x:Name="ClearButton" Content="Очистити" Click="OnClearClicked" Foreground="#A52D36" ToolTip.Tip="Очистити відомі об’єкти полотна" />
+                <Button x:Name="ClearButton" Content="Очистити полотно" Click="OnClearClicked" Foreground="#A52D36" ToolTip.Tip="Видалити відомі об'єкти на всіх шарах" />
             </WrapPanel>
         </Border>
         <Grid x:Name="BodyGrid" Grid.Row="2">
@@ -125,5 +125,16 @@
             <TextBlock Grid.Column="1" Text="{Binding ObjectCount, StringFormat='Об’єктів: {0}'}" Classes="label" VerticalAlignment="Center" />
             <Button x:Name="ResetZoomButton" Grid.Column="2" Content="100%" Click="OnResetViewClicked" ToolTip.Tip="Повернути масштаб 100% і центр полотна" MinHeight="32" Padding="8,2" />
         </Grid>
+        <Border x:Name="ConfirmationOverlay" Grid.RowSpan="4" Background="#66000000" IsVisible="False">
+            <Border Background="White" CornerRadius="10" Padding="20" Margin="12" MaxWidth="400" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel Spacing="16">
+                    <TextBlock x:Name="ConfirmationText" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                        <Button x:Name="CancelActionButton" Content="Скасувати" Click="OnCancelActionClicked" />
+                        <Button x:Name="ConfirmActionButton" Content="Підтвердити" Click="OnConfirmActionClicked" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
     </Grid>
 </UserControl>

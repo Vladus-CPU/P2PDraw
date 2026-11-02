@@ -10,6 +10,7 @@ namespace P2PDraw.App.Views;
 public partial class MainView : UserControl
 {
     private bool? isCompact;
+    private Action? confirmedAction;
 
     public MainView()
     {
@@ -153,7 +154,41 @@ public partial class MainView : UserControl
     }
 
     private void OnDisconnectClicked(object? sender, RoutedEventArgs eventArgs) => Model?.Disconnect();
-    private void OnClearClicked(object? sender, RoutedEventArgs eventArgs) => Model?.ClearCanvas();
+    private void OnClearClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        ConfirmAction("Очистити полотно на всіх шарах? Видалення побачать усі учасники сесії, також після перепідключення.", () => Model?.ClearCanvas());
+    }
+
+    private void ConfirmAction(string message, Action action)
+    {
+        confirmedAction = action;
+        ConfirmationText.Text = message;
+        ConfirmationOverlay.IsVisible = true;
+        HeaderGrid.IsEnabled = false;
+        BrushPanel.IsEnabled = false;
+        BodyGrid.IsEnabled = false;
+        FooterGrid.IsEnabled = false;
+        CancelActionButton.Focus();
+    }
+
+    private void OnCancelActionClicked(object? sender, RoutedEventArgs eventArgs) => CloseConfirmation();
+
+    private void OnConfirmActionClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        var action = confirmedAction;
+        CloseConfirmation();
+        action?.Invoke();
+    }
+
+    private void CloseConfirmation()
+    {
+        confirmedAction = null;
+        ConfirmationOverlay.IsVisible = false;
+        HeaderGrid.IsEnabled = true;
+        BrushPanel.IsEnabled = true;
+        BodyGrid.IsEnabled = true;
+        FooterGrid.IsEnabled = true;
+    }
 
     private void OnColorChanged(object? sender, SelectionChangedEventArgs eventArgs)
     {

@@ -408,6 +408,7 @@ public partial class EditorTests
                 await WaitUntilAsync(() => first.OperationCount == 8 && second.OperationCount == 8);
                 var clearButton = firstWindow.Editor.FindControl<Button>("ClearButton")!;
                 clearButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                firstWindow.Editor.FindControl<Button>("ConfirmActionButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await WaitUntilAsync(() => second.OperationCount == 9);
                 Assert.Empty(second.Strokes);
 
@@ -416,6 +417,7 @@ public partial class EditorTests
                 DrawStroke(firstWindow, new Point(50, 180), new Point(110, 220));
                 DrawStroke(secondWindow, new Point(170, 180), new Point(230, 220));
                 clearButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                firstWindow.Editor.FindControl<Button>("ConfirmActionButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 connectButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await WaitUntilAsync(() => first.OperationCount == 18 && second.OperationCount == 18);
                 Assert.Equal(Normalize(first), Normalize(second));
