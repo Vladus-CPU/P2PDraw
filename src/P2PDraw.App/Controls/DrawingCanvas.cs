@@ -25,6 +25,11 @@ public sealed class DrawingCanvas : Control
     public static readonly StyledProperty<uint> StrokeColorProperty = AvaloniaProperty.Register<DrawingCanvas, uint>(nameof(StrokeColor), 0xFF253449);
     public static readonly StyledProperty<double> StrokeWidthProperty = AvaloniaProperty.Register<DrawingCanvas, double>(nameof(StrokeWidth), 3);
     public static readonly StyledProperty<bool> FillShapesProperty = AvaloniaProperty.Register<DrawingCanvas, bool>(nameof(FillShapes));
+    public static readonly StyledProperty<IReadOnlyList<Guid>?> VisibleLayerIdsProperty =
+        AvaloniaProperty.Register<DrawingCanvas, IReadOnlyList<Guid>?>(nameof(VisibleLayerIds));
+    public static readonly StyledProperty<IReadOnlySet<Guid>?> SelectableLayerIdsProperty =
+        AvaloniaProperty.Register<DrawingCanvas, IReadOnlySet<Guid>?>(nameof(SelectableLayerIds));
+    public static readonly StyledProperty<bool> CanDrawProperty = AvaloniaProperty.Register<DrawingCanvas, bool>(nameof(CanDraw), true);
 
     private DrawingTool tool = DrawingTool.Brush;
     private StrokePoint dragStart;
@@ -59,6 +64,25 @@ public sealed class DrawingCanvas : Control
         get => GetValue(FillShapesProperty);
         set => SetValue(FillShapesProperty, value);
     }
+
+    public IReadOnlyList<Guid>? VisibleLayerIds
+    {
+        get => GetValue(VisibleLayerIdsProperty);
+        set => SetValue(VisibleLayerIdsProperty, value);
+    }
+
+    public IReadOnlySet<Guid>? SelectableLayerIds
+    {
+        get => GetValue(SelectableLayerIdsProperty);
+        set => SetValue(SelectableLayerIdsProperty, value);
+    }
+
+    public bool CanDraw
+    {
+        get => GetValue(CanDrawProperty);
+        set => SetValue(CanDrawProperty, value);
+    }
+
     public DrawingTool Tool
     {
         get => tool;
@@ -101,7 +125,7 @@ public sealed class DrawingCanvas : Control
 
     static DrawingCanvas()
     {
-        AffectsRender<DrawingCanvas>(StrokesProperty, ShapesProperty, StrokeColorProperty, StrokeWidthProperty, FillShapesProperty);
+        AffectsRender<DrawingCanvas>(StrokesProperty, ShapesProperty, StrokeColorProperty, StrokeWidthProperty, FillShapesProperty, VisibleLayerIdsProperty);
     }
 
     public DrawingCanvas()
@@ -119,9 +143,33 @@ public sealed class DrawingCanvas : Control
 
         using var clip = context.PushClip(canvasBounds);
         using var transform = context.PushTransform(Matrix.CreateScale(Zoom, Zoom) * Matrix.CreateTranslation(Pan));
+        if (VisibleLayerIds is null)
+        {
+            DrawLayer(context, null);
+        }
+        else
+        {
+            foreach (var layerId in VisibleLayerIds)
+            {
+                DrawLayer(context, layerId);
+            }
+        }
+        if (strokeStarted && tool != DrawingTool.Brush && tool != DrawingTool.Select)
+        {
+            DrawShape(context, ToolShapeKind(), dragStart, dragPosition, StrokeColor, StrokeWidth, PreviewFill());
+        }
+        if (SelectedObjectId is Guid selected && FindBounds(selected) is Rect bounds)
+        {
+            var outline = new Pen(Brushes.DodgerBlue, 1.5 / Zoom);
+            context.DrawRectangle(null, outline, bounds.Inflate(5 / Zoom));
+        }
+    }
+
+    private void DrawLayer(DrawingContext context, Guid? layerId)
+    {
         foreach (var stroke in Strokes ?? [])
         {
-            if (stroke.Points.IsDefaultOrEmpty)
+            if (stroke.Points.IsDefaultOrEmpty || layerId is Guid strokeLayer && stroke.LayerId != strokeLayer)
             {
                 continue;
             }
@@ -150,18 +198,13 @@ public sealed class DrawingCanvas : Control
         }
         foreach (var shape in Shapes ?? [])
         {
+            if (layerId is Guid shapeLayer && shape.LayerId != shapeLayer)
+            {
+                continue;
+            }
             var offset = DisplayOffset(shape.ShapeId, shape.Offset);
             DrawShape(context, shape.Kind, new(shape.Start.X + offset.X, shape.Start.Y + offset.Y),
                 new(shape.End.X + offset.X, shape.End.Y + offset.Y), shape.Color, shape.Width, shape.Fill);
-        }
-        if (strokeStarted && tool != DrawingTool.Brush && tool != DrawingTool.Select)
-        {
-            DrawShape(context, ToolShapeKind(), dragStart, dragPosition, StrokeColor, StrokeWidth, PreviewFill());
-        }
-        if (SelectedObjectId is Guid selected && FindBounds(selected) is Rect bounds)
-        {
-            var outline = new Pen(Brushes.DodgerBlue, 1.5 / Zoom);
-            context.DrawRectangle(null, outline, bounds.Inflate(5 / Zoom));
         }
     }
 
@@ -217,6 +260,10 @@ public sealed class DrawingCanvas : Control
         {
             return;
         }
+        if (!CanDraw && tool != DrawingTool.Select)
+        {
+            return;
+        }
         drawingPointer = eventArgs.Pointer;
         drawingPointer.Capture(this);
         lastPoint = GetCanvasPoint(eventArgs);
@@ -252,6 +299,10 @@ public sealed class DrawingCanvas : Control
         }
         if (!strokeStarted)
         {
+            if (!CanDraw && tool != DrawingTool.Select)
+            {
+                return;
+            }
             Vector movement = eventArgs.GetPosition(this) - touchStart;
             if (movement.Length < 3)
             {
@@ -306,6 +357,12 @@ public sealed class DrawingCanvas : Control
         }
         if (!strokeStarted)
         {
+            if (!CanDraw && tool != DrawingTool.Select)
+            {
+                FinishStroke(false);
+                eventArgs.Handled = true;
+                return;
+            }
             strokeStarted = true;
             BeginAction(lastPoint);
         }
@@ -425,9 +482,15 @@ public sealed class DrawingCanvas : Control
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        if ((change.Property == StrokesProperty || change.Property == ShapesProperty)
-            && SelectedObjectId is Guid selected && FindBounds(selected) is null)
+        if (change.Property == CanDrawProperty && !CanDraw && tool != DrawingTool.Select)
         {
+            FinishStroke(false);
+        }
+        if ((change.Property == StrokesProperty || change.Property == ShapesProperty
+            || change.Property == VisibleLayerIdsProperty || change.Property == SelectableLayerIdsProperty)
+            && SelectedObjectId is Guid selected && !CanSelectObject(selected))
+        {
+            FinishStroke(false);
             ClearSelection();
         }
     }
@@ -453,13 +516,32 @@ public sealed class DrawingCanvas : Control
     public Guid? HitTestObject(StrokePoint point, bool touch = false)
     {
         double tolerance = (touch ? 12 : 6) / Zoom;
+        if (VisibleLayerIds is null)
+        {
+            return HitTestLayer(point, tolerance, null);
+        }
+        for (int index = VisibleLayerIds.Count - 1; index >= 0; index--)
+        {
+            var objectId = HitTestLayer(point, tolerance, VisibleLayerIds[index]);
+            if (objectId is not null)
+            {
+                return objectId;
+            }
+        }
+        return null;
+    }
+
+    private Guid? HitTestLayer(StrokePoint point, double tolerance, Guid? layerId)
+    {
         if (Shapes is not null)
         {
             for (int index = Shapes.Count - 1; index >= 0; index--)
             {
-                if (CanvasGeometry.Contains(Shapes[index], point, tolerance))
+                var shape = Shapes[index];
+                if ((layerId is null || shape.LayerId == layerId) && IsSelectableLayer(shape.LayerId)
+                    && CanvasGeometry.Contains(shape, point, tolerance))
                 {
-                    return Shapes[index].ShapeId;
+                    return shape.ShapeId;
                 }
             }
         }
@@ -467,13 +549,40 @@ public sealed class DrawingCanvas : Control
         {
             for (int index = Strokes.Count - 1; index >= 0; index--)
             {
-                if (CanvasGeometry.Contains(Strokes[index], point, tolerance))
+                var stroke = Strokes[index];
+                if ((layerId is null || stroke.LayerId == layerId) && IsSelectableLayer(stroke.LayerId)
+                    && CanvasGeometry.Contains(stroke, point, tolerance))
                 {
-                    return Strokes[index].StrokeId;
+                    return stroke.StrokeId;
                 }
             }
         }
         return null;
+    }
+
+    private bool IsSelectableLayer(Guid layerId)
+    {
+        return (VisibleLayerIds is null || VisibleLayerIds.Contains(layerId))
+            && (SelectableLayerIds is null || SelectableLayerIds.Contains(layerId));
+    }
+
+    private bool CanSelectObject(Guid objectId)
+    {
+        foreach (var stroke in Strokes ?? [])
+        {
+            if (stroke.StrokeId == objectId)
+            {
+                return IsSelectableLayer(stroke.LayerId);
+            }
+        }
+        foreach (var shape in Shapes ?? [])
+        {
+            if (shape.ShapeId == objectId)
+            {
+                return IsSelectableLayer(shape.LayerId);
+            }
+        }
+        return false;
     }
 
     private void BeginAction(StrokePoint point)
