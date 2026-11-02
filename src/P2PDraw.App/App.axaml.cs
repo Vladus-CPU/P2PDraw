@@ -32,6 +32,7 @@ public partial class App : Application
     {
         // Activity recreation replaces controls but retains the document and TCP peer.
         MobileModel ??= new MainWindowViewModel();
+        MobileModel.LayerEditor.SelectedObjectId = null;
         return new MainView { DataContext = MobileModel };
     }
 
