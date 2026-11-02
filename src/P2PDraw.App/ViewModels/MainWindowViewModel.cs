@@ -313,6 +313,20 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
 
     public Snapshot GetSnapshot() => Engine.CreateSnapshot();
 
+    public async Task<bool> OpenAsNewSessionAsync(Snapshot snapshot)
+    {
+        EndStroke();
+        if (!await Session.OpenAsNewSessionAsync(snapshot))
+        {
+            return false;
+        }
+        activeStrokeId = null;
+        history.Clear();
+        LayerEditor.ResetViewState();
+        RefreshDocument();
+        return true;
+    }
+
     public void Undo()
     {
         EndStroke();

@@ -16,7 +16,7 @@ namespace P2PDraw.App.ViewModels;
 public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
 {
     private readonly CancellationTokenSource lifetime = new();
-    private readonly Channel<Operation> outgoing = Channel.CreateUnbounded<Operation>();
+    private readonly Channel<(Guid SessionId, Operation Operation)> outgoing = Channel.CreateUnbounded<(Guid, Operation)>();
     private readonly Task sendingTask;
     private TcpPeer? peer;
     private PeerDiscovery? discovery;
@@ -35,6 +35,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
     private bool isBusy;
     private bool isOffline;
     private bool isDisposed;
+    private bool isReplacingSession;
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event Action? DocumentChanged;
@@ -270,7 +271,41 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
             Status = "Документ уже містить зміни. Іншу сесію не відкрито, щоб не втратити малюнок.";
             return false;
         }
+        await ReplaceSessionAsync(new SyncEngine(Engine.PeerId, requestedSession));
+        return true;
+    }
+
+    public async Task<bool> OpenAsNewSessionAsync(Snapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.SessionId == Guid.Empty)
+        {
+            throw new ArgumentException("Document session ID is missing.");
+        }
+        if (isDisposed || isBusy)
+        {
+            return false;
+        }
+        var replacement = await Task.Run(() =>
+        {
+            var restored = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
+            restored.MergeSnapshot(snapshot with { SessionId = restored.SessionId });
+            return restored;
+        }, lifetime.Token);
+        if (isDisposed || isBusy)
+        {
+            return false;
+        }
+        await ReplaceSessionAsync(replacement);
+        LocalPort = "0";
+        Status = "Документ відкрито як нову сесію. Можна працювати офлайн або створити підключення.";
+        return true;
+    }
+
+    private async Task ReplaceSessionAsync(SyncEngine replacement)
+    {
         SetBusy(true);
+        isReplacingSession = true;
         try
         {
             if (discovery is not null)
@@ -288,18 +323,24 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
                 peer = null;
             }
             await meshTask;
-            Engine = new SyncEngine(Engine.PeerId, requestedSession);
-            SessionId = requestedSession.ToString();
-            isSessionLocked = false;
+            Engine = replacement;
+            SessionId = replacement.SessionId.ToString();
+            isSessionLocked = !Engine.GetOperations().IsEmpty;
             isListening = false;
             isOffline = false;
             hadConnection = false;
+            DiscoveredPeers = [];
+            AvailableSessions = [];
+            SelectedPeer = null;
+            SelectedSession = null;
+            Notify(nameof(DiscoveredPeers));
+            Notify(nameof(AvailableSessions));
             Notify(nameof(CanEditSession));
             RefreshConnection();
-            return true;
         }
         finally
         {
+            isReplacingSession = false;
             SetBusy(false);
         }
     }
@@ -535,6 +576,10 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public bool EnsureSession()
     {
+        if (isDisposed || isReplacingSession)
+        {
+            return false;
+        }
         if (isSessionLocked)
         {
             return true;
@@ -555,7 +600,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public void PublishOperation(Operation operation)
     {
-        outgoing.Writer.TryWrite(operation);
+        outgoing.Writer.TryWrite((Engine.SessionId, operation));
         RefreshConnection();
     }
 
@@ -563,12 +608,12 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
     {
         try
         {
-            await foreach (var operation in outgoing.Reader.ReadAllAsync(lifetime.Token))
+            await foreach (var item in outgoing.Reader.ReadAllAsync(lifetime.Token))
             {
                 var currentPeer = peer;
-                if (currentPeer is not null)
+                if (currentPeer is not null && item.SessionId == Engine.SessionId)
                 {
-                    await currentPeer.SendOperationAsync(operation, lifetime.Token);
+                    await currentPeer.SendOperationAsync(item.Operation, lifetime.Token);
                 }
             }
         }

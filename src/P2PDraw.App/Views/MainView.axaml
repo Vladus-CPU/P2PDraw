@@ -131,6 +131,8 @@
                 <ScrollViewer x:Name="FileScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Spacing="8">
                         <TextBlock Text="Файл" FontWeight="SemiBold" />
+                        <Button x:Name="SaveProjectButton" Content="Зберегти проєкт" Click="OnSaveProjectClicked" />
+                        <Button x:Name="OpenProjectButton" Content="Відкрити проєкт…" Click="OnOpenProjectClicked" />
                         <CheckBox x:Name="VisibleContentOnly" Content="Експортувати лише видимі шари" IsChecked="True" />
                         <Button x:Name="ExportSvgButton" Content="Експорт SVG" Click="OnExportSvgClicked" />
                         <Button x:Name="ExportPngButton" Content="Експорт PNG" Click="OnExportPngClicked" />

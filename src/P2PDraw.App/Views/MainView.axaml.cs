@@ -5,13 +5,14 @@ using Avalonia.Media;
 using P2PDraw.App.Controls;
 using P2PDraw.App.Documents;
 using P2PDraw.App.ViewModels;
+using P2PDraw.Core.Storage;
 
 namespace P2PDraw.App.Views;
 
 public partial class MainView : UserControl
 {
     private bool? isCompact;
-    private Action? confirmedAction;
+    private Func<Task>? confirmedAction;
 
     public MainView()
     {
@@ -171,6 +172,98 @@ public partial class MainView : UserControl
         }
     }
 
+    private async void OnSaveProjectClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        var model = Model;
+        var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
+        if (model is null || storage is null)
+        {
+            return;
+        }
+        FilesPanel.IsVisible = false;
+        try
+        {
+            if (await AppFilesService.SaveProjectAsync(storage, model.GetSnapshot()))
+            {
+                model.Session.Status = "Проєкт P2PDraw збережено.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (InvalidDataException exception)
+        {
+            model.Session.Status = exception.Message;
+        }
+        catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException
+            || exception is ArgumentException || exception is NotSupportedException || exception is InvalidOperationException)
+        {
+            model.Session.Status = "Не вдалося зберегти проєкт. Перевірте доступ до файлу.";
+        }
+    }
+
+    private async void OnOpenProjectClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        var model = Model;
+        var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
+        if (model is null || storage is null)
+        {
+            return;
+        }
+        FilesPanel.IsVisible = false;
+        try
+        {
+            var file = await AppFilesService.OpenProjectAsync(storage);
+            if (file is not null)
+            {
+                ConfirmAsyncAction($"Відкрити «{file.Name}» як нову сесію? Поточне підключення закриється. Збережіть поточний документ перед продовженням.",
+                    () => OpenConfirmedProjectAsync(file));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (InvalidDataException exception)
+        {
+            model.Session.Status = exception.Message;
+        }
+        catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException
+            || exception is ArgumentException || exception is NotSupportedException || exception is InvalidOperationException)
+        {
+            model.Session.Status = "Не вдалося відкрити проєкт. Виберіть коректний файл .p2pdraw.";
+        }
+    }
+
+    private async Task OpenConfirmedProjectAsync(ProjectFile file)
+    {
+        var model = Model;
+        if (model is null)
+        {
+            return;
+        }
+        SetEditorEnabled(false);
+        try
+        {
+            if (await model.OpenAsNewSessionAsync(file.Snapshot))
+            {
+                DrawingSurface.ClearSelection();
+                DrawingSurface.ResetView();
+                model.Session.Status = $"«{file.Name}» відкрито як нову сесію.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (ArgumentException)
+        {
+            model.Session.Status = "Стан файлу некоректний. Відкриття скасовано.";
+        }
+        finally
+        {
+            SetEditorEnabled(true);
+        }
+    }
+
     private void ConfirmLayerAction(bool remove)
     {
         var model = Model;
@@ -279,33 +372,47 @@ public partial class MainView : UserControl
 
     private void ConfirmAction(string message, Action action)
     {
+        ConfirmAsyncAction(message, () =>
+        {
+            action();
+            return Task.CompletedTask;
+        });
+    }
+
+    private void ConfirmAsyncAction(string message, Func<Task> action)
+    {
         confirmedAction = action;
         ConfirmationText.Text = message;
         ConfirmationOverlay.IsVisible = true;
-        HeaderGrid.IsEnabled = false;
-        BrushPanel.IsEnabled = false;
-        BodyGrid.IsEnabled = false;
-        FooterGrid.IsEnabled = false;
+        SetEditorEnabled(false);
         CancelActionButton.Focus();
     }
 
     private void OnCancelActionClicked(object? sender, RoutedEventArgs eventArgs) => CloseConfirmation();
 
-    private void OnConfirmActionClicked(object? sender, RoutedEventArgs eventArgs)
+    private async void OnConfirmActionClicked(object? sender, RoutedEventArgs eventArgs)
     {
         var action = confirmedAction;
         CloseConfirmation();
-        action?.Invoke();
+        if (action is not null)
+        {
+            await action();
+        }
     }
 
     private void CloseConfirmation()
     {
         confirmedAction = null;
         ConfirmationOverlay.IsVisible = false;
-        HeaderGrid.IsEnabled = true;
-        BrushPanel.IsEnabled = true;
-        BodyGrid.IsEnabled = true;
-        FooterGrid.IsEnabled = true;
+        SetEditorEnabled(true);
+    }
+
+    private void SetEditorEnabled(bool enabled)
+    {
+        HeaderGrid.IsEnabled = enabled;
+        BrushPanel.IsEnabled = enabled;
+        BodyGrid.IsEnabled = enabled;
+        FooterGrid.IsEnabled = enabled;
     }
 
     private void OnColorChanged(object? sender, SelectionChangedEventArgs eventArgs)
