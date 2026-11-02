@@ -4,6 +4,7 @@ using P2PDraw.Core.Models;
 
 namespace P2PDraw.Core.Operations;
 
+[method: JsonConstructor]
 public readonly record struct OperationStamp(Guid OperationId, Guid PeerId, long SequenceNumber, long LamportTime) : IComparable<OperationStamp>
 {
     public int CompareTo(OperationStamp other)

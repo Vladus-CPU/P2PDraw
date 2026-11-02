@@ -1,8 +1,10 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using P2PDraw.Core.Operations;
 
 namespace P2PDraw.Core.Models;
 
+[method: JsonConstructor]
 public readonly record struct StrokePoint(double X, double Y);
 
 public sealed record Stroke(Guid StrokeId, Guid PeerId, uint Color, double Width,

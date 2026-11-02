@@ -10,7 +10,8 @@ public static class MessageFraming
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         MaxDepth = 32,
-        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        RespectRequiredConstructorParameters = true
     };
 
     public static bool FitsInFrame<T>(T message) where T : class
