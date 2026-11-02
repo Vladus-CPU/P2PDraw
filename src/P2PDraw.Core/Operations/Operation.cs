@@ -32,6 +32,11 @@ public readonly record struct OperationStamp(Guid OperationId, Guid PeerId, long
 [JsonDerivedType(typeof(ShapeAdd), "shapeAdd")]
 [JsonDerivedType(typeof(ObjectMove), "objectMove")]
 [JsonDerivedType(typeof(ObjectRemove), "objectRemove")]
+[JsonDerivedType(typeof(LayerAdd), "layerAdd")]
+[JsonDerivedType(typeof(LayerRename), "layerRename")]
+[JsonDerivedType(typeof(LayerReorder), "layerReorder")]
+[JsonDerivedType(typeof(LayerRemove), "layerRemove")]
+[JsonDerivedType(typeof(ObjectLayer), "objectLayer")]
 public abstract record Operation(OperationStamp Stamp)
 {
     public void Validate()
@@ -45,10 +50,10 @@ public abstract record Operation(OperationStamp Stamp)
         switch (this)
         {
             case StrokeBegin begin:
-                isValid = begin.StrokeId != Guid.Empty && double.IsFinite(begin.Width) && begin.Width > 0;
+                isValid = begin.StrokeId != Guid.Empty && begin.LayerId != Guid.Empty && double.IsFinite(begin.Width) && begin.Width > 0;
                 break;
             case ShapeAdd shape:
-                isValid = shape.ShapeId != Guid.Empty && Enum.IsDefined(shape.Kind)
+                isValid = shape.ShapeId != Guid.Empty && shape.LayerId != Guid.Empty && Enum.IsDefined(shape.Kind)
                     && double.IsFinite(shape.Width) && shape.Width > 0
                     && double.IsFinite(shape.Start.X) && double.IsFinite(shape.Start.Y)
                     && double.IsFinite(shape.End.X) && double.IsFinite(shape.End.Y);
@@ -87,6 +92,22 @@ public abstract record Operation(OperationStamp Stamp)
             case ObjectRemove remove:
                 isValid = remove.ObjectId != Guid.Empty;
                 break;
+            case LayerAdd add:
+                isValid = add.LayerId != Guid.Empty && add.LayerId != Layer.DefaultLayerId
+                    && Layer.IsValidName(add.Name) && double.IsFinite(add.Position);
+                break;
+            case LayerRename rename:
+                isValid = rename.LayerId != Guid.Empty && Layer.IsValidName(rename.Name);
+                break;
+            case LayerReorder reorder:
+                isValid = reorder.LayerId != Guid.Empty && double.IsFinite(reorder.Position);
+                break;
+            case LayerRemove remove:
+                isValid = remove.LayerId != Guid.Empty;
+                break;
+            case ObjectLayer membership:
+                isValid = membership.ObjectId != Guid.Empty && membership.LayerId != Guid.Empty;
+                break;
             case CanvasClear clear:
                 isValid = !clear.StrokeIds.IsDefault;
                 if (!isValid)
@@ -111,12 +132,18 @@ public abstract record Operation(OperationStamp Stamp)
     }
 }
 
-public sealed record StrokeBegin(OperationStamp Stamp, Guid StrokeId, uint Color, double Width) : Operation(Stamp);
+public sealed record StrokeBegin(OperationStamp Stamp, Guid StrokeId, uint Color, double Width) : Operation(Stamp)
+{
+    public Guid LayerId { get; init; } = Layer.DefaultLayerId;
+}
 public sealed record StrokeAppend(OperationStamp Stamp, Guid StrokeId, int StartIndex, ImmutableArray<StrokePoint> Points) : Operation(Stamp);
 public sealed record StrokeEnd(OperationStamp Stamp, Guid StrokeId, int PointCount) : Operation(Stamp);
 public sealed record StrokeRemove(OperationStamp Stamp, Guid StrokeId) : Operation(Stamp);
 public sealed record CanvasClear(OperationStamp Stamp, ImmutableArray<Guid> StrokeIds) : Operation(Stamp);
 public sealed record ShapeAdd(OperationStamp Stamp, Guid ShapeId, ShapeKind Kind, StrokePoint Start, StrokePoint End,
-    uint Color, double Width, uint? Fill = null) : Operation(Stamp);
+    uint Color, double Width, uint? Fill = null) : Operation(Stamp)
+{
+    public Guid LayerId { get; init; } = Layer.DefaultLayerId;
+}
 public sealed record ObjectMove(OperationStamp Stamp, Guid ObjectId, StrokePoint Offset) : Operation(Stamp);
 public sealed record ObjectRemove(OperationStamp Stamp, Guid ObjectId) : Operation(Stamp);

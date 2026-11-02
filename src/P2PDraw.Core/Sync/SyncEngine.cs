@@ -59,6 +59,22 @@ public sealed class SyncEngine
         }
     }
 
+    public ImmutableArray<Layer> GetLayers()
+    {
+        lock (stateLock)
+        {
+            return document.GetLayers();
+        }
+    }
+
+    public ImmutableArray<Guid> GetPendingLayerIds()
+    {
+        lock (stateLock)
+        {
+            return document.GetPendingLayerIds();
+        }
+    }
+
     public ImmutableArray<Guid> GetPendingStrokeIds()
     {
         lock (stateLock)
@@ -93,7 +109,10 @@ public sealed class SyncEngine
             var pendingStrokeIds = document.GetPendingStrokeIds();
             return new Snapshot(SessionId, clock.Value, strokes, tombstones, operations, pendingStrokeIds)
             {
-                Shapes = document.GetShapes()
+                Shapes = document.GetShapes(),
+                Layers = document.GetLayers(),
+                LayerTombstones = document.GetLayerTombstones(),
+                PendingLayerIds = document.GetPendingLayerIds()
             };
         }
     }
@@ -143,7 +162,7 @@ public sealed class SyncEngine
         }
     }
 
-    public StrokeBegin BeginStroke(uint color, double width)
+    public StrokeBegin BeginStroke(uint color, double width, Guid? layerId = null)
     {
         if (!double.IsFinite(width) || width <= 0)
         {
@@ -152,7 +171,9 @@ public sealed class SyncEngine
 
         lock (stateLock)
         {
-            var operation = new StrokeBegin(NextStamp(), Guid.NewGuid(), color, width);
+            Guid targetLayer = layerId ?? Layer.DefaultLayerId;
+            RequireLayer(targetLayer);
+            var operation = new StrokeBegin(NextStamp(), Guid.NewGuid(), color, width) { LayerId = targetLayer };
             document.Apply(operation);
             return operation;
         }
@@ -180,7 +201,8 @@ public sealed class SyncEngine
         }
     }
 
-    public ShapeAdd AddShape(ShapeKind kind, StrokePoint start, StrokePoint end, uint color, double width, uint? fill = null)
+    public ShapeAdd AddShape(ShapeKind kind, StrokePoint start, StrokePoint end, uint color, double width,
+        uint? fill = null, Guid? layerId = null)
     {
         if (!Enum.IsDefined(kind) || !double.IsFinite(width) || width <= 0
             || !double.IsFinite(start.X) || !double.IsFinite(start.Y) || !double.IsFinite(end.X) || !double.IsFinite(end.Y))
@@ -189,7 +211,9 @@ public sealed class SyncEngine
         }
         lock (stateLock)
         {
-            var operation = new ShapeAdd(NextStamp(), Guid.NewGuid(), kind, start, end, color, width, fill);
+            Guid targetLayer = layerId ?? Layer.DefaultLayerId;
+            RequireLayer(targetLayer);
+            var operation = new ShapeAdd(NextStamp(), Guid.NewGuid(), kind, start, end, color, width, fill) { LayerId = targetLayer };
             document.Apply(operation);
             return operation;
         }
@@ -225,16 +249,7 @@ public sealed class SyncEngine
     {
         lock (stateLock)
         {
-            var knownIds = ImmutableArray.CreateBuilder<Guid>();
-            foreach (var stroke in document.GetStrokes())
-            {
-                knownIds.Add(stroke.StrokeId);
-            }
-            foreach (var shape in document.GetShapes())
-            {
-                knownIds.Add(shape.ShapeId);
-            }
-            var operation = new CanvasClear(NextStamp(), knownIds.ToImmutable());
+            var operation = new CanvasClear(NextStamp(), document.GetKnownObjectIds());
             document.Apply(operation);
             return operation;
         }
@@ -267,6 +282,104 @@ public sealed class SyncEngine
         lock (stateLock)
         {
             var operation = new ObjectRemove(NextStamp(), objectId);
+            document.Apply(operation);
+            return operation;
+        }
+    }
+
+    public LayerAdd AddLayer(string name, double? position = null)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        name = name.Trim();
+        if (!Layer.IsValidName(name))
+        {
+            throw new ArgumentException("Layer name must contain 1 to 100 characters.");
+        }
+        lock (stateLock)
+        {
+            var layers = document.GetLayers();
+            double targetPosition = position ?? 0;
+            if (position is null && !layers.IsEmpty)
+            {
+                targetPosition = layers[^1].Position + 1;
+            }
+            if (!double.IsFinite(targetPosition))
+            {
+                throw new ArgumentException("Layer position must be finite.");
+            }
+            var operation = new LayerAdd(NextStamp(), Guid.NewGuid(), name, targetPosition);
+            document.Apply(operation);
+            return operation;
+        }
+    }
+
+    public LayerRename RenameLayer(Guid layerId, string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        name = name.Trim();
+        if (!Layer.IsValidName(name))
+        {
+            throw new ArgumentException("Layer name must contain 1 to 100 characters.");
+        }
+        lock (stateLock)
+        {
+            RequireLayer(layerId);
+            var operation = new LayerRename(NextStamp(), layerId, name);
+            document.Apply(operation);
+            return operation;
+        }
+    }
+
+    public LayerReorder SetLayerPosition(Guid layerId, double position)
+    {
+        if (!double.IsFinite(position))
+        {
+            throw new ArgumentException("Layer position must be finite.");
+        }
+        lock (stateLock)
+        {
+            RequireLayer(layerId);
+            var operation = new LayerReorder(NextStamp(), layerId, position);
+            document.Apply(operation);
+            return operation;
+        }
+    }
+
+    public LayerRemove RemoveLayer(Guid layerId)
+    {
+        if (layerId == Guid.Empty)
+        {
+            throw new ArgumentException("Layer ID is required.");
+        }
+        lock (stateLock)
+        {
+            var operation = new LayerRemove(NextStamp(), layerId);
+            document.Apply(operation);
+            return operation;
+        }
+    }
+
+    public ObjectLayer MoveObjectToLayer(Guid objectId, Guid layerId)
+    {
+        lock (stateLock)
+        {
+            RequireLayer(layerId);
+            if (!document.ContainsKnownObject(objectId))
+            {
+                throw new InvalidOperationException("Object is missing or removed.");
+            }
+            var operation = new ObjectLayer(NextStamp(), objectId, layerId);
+            document.Apply(operation);
+            return operation;
+        }
+    }
+
+    public CanvasClear ClearLayer(Guid layerId)
+    {
+        lock (stateLock)
+        {
+            RequireLayer(layerId);
+            var operation = new CanvasClear(NextStamp(), document.GetKnownObjectIds(layerId));
             document.Apply(operation);
             return operation;
         }
@@ -319,5 +432,13 @@ public sealed class SyncEngine
         }
 
         return stroke;
+    }
+
+    private void RequireLayer(Guid layerId)
+    {
+        if (!document.ContainsLayer(layerId))
+        {
+            throw new InvalidOperationException("Layer is missing or removed.");
+        }
     }
 }

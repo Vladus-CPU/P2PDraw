@@ -10,4 +10,6 @@ public sealed record Stroke(Guid StrokeId, Guid PeerId, uint Color, double Width
 {
     public StrokePoint Offset { get; init; }
     public OperationStamp? MovedAt { get; init; }
+    public Guid LayerId { get; init; } = Layer.DefaultLayerId;
+    public OperationStamp? LayerChangedAt { get; init; }
 }
