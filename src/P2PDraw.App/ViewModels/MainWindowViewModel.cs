@@ -1,149 +1,36 @@
 using System.Collections.Immutable;
 using System.ComponentModel;
-using System.Net;
-using System.Net.NetworkInformation;
-using System.Net.Sockets;
 using System.Runtime.CompilerServices;
-using System.Threading.Channels;
-using Avalonia.Threading;
 using P2PDraw.Core.Models;
 using P2PDraw.Core.Operations;
 using P2PDraw.Core.Sync;
 using P2PDraw.Networking.Discovery;
-using P2PDraw.Networking.Transport;
 
 namespace P2PDraw.App.ViewModels;
 
 public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposable
 {
-    private readonly CancellationTokenSource lifetime = new();
-    private readonly Channel<Operation> outgoing = Channel.CreateUnbounded<Operation>();
-    private readonly Task sendingTask;
-    private SyncEngine engine;
-    private TcpPeer? peer;
-    private PeerDiscovery? discovery;
-    private DiscoveredPeer? selectedPeer;
-    private DiscoveredPeer? selectedSession;
-    private bool hadConnection;
-    private Task meshTask = Task.CompletedTask;
-    private string discoveryStatus = "Пошук почнеться після запуску прослуховування.";
     private Guid? activeStrokeId;
-    private string sessionId = Guid.NewGuid().ToString();
-    private string localPort = "5101";
-    private string remoteAddress = "127.0.0.1";
-    private string remotePort = "5102";
-    private string status = "Можна малювати офлайн або підключити інший вузол.";
+    private uint brushColor = 0xFF253449;
     private double brushWidth = 3;
-    private bool isSessionLocked;
-    private bool isListening;
-    private bool isBusy;
-    private bool isOffline;
+    private bool fillShapes;
     private bool isDisposed;
+    private SyncEngine Engine => Session.Engine;
 
     public event PropertyChangedEventHandler? PropertyChanged;
+    public SessionViewModel Session { get; }
     public ImmutableArray<Stroke> Strokes { get; private set; } = [];
+    public ImmutableArray<Shape> Shapes { get; private set; } = [];
     public int StrokeCount => Strokes.Length;
+    public int ObjectCount => Strokes.Length + Shapes.Length;
     public int OperationCount { get; private set; }
-    public int ConnectedPeers { get; private set; }
-    public ImmutableArray<DiscoveredPeer> DiscoveredPeers { get; private set; } = [];
-    public ImmutableArray<DiscoveredPeer> AvailableSessions { get; private set; } = [];
-    public bool CanCreateSession => CanStartListening;
-    public bool CanSearchSessions => !isBusy && !isDisposed;
-    public bool CanJoinSession => SelectedSession is not null && !isBusy && !isDisposed;
-    public string SessionTitle => isSessionLocked ? $"Сесія {engine.SessionId.ToString()[..8]}" : "Локальний документ";
 
-    public DiscoveredPeer? SelectedSession
+    public uint BrushColor
     {
-        get => selectedSession;
+        get => brushColor;
         set
         {
-            selectedSession = value;
-            Notify();
-            Notify(nameof(CanJoinSession));
-        }
-    }
-    public bool CanConnectDiscovered => CanConnect && SelectedPeer is not null;
-    public string DiscoveryStatus
-    {
-        get => discoveryStatus;
-        private set
-        {
-            discoveryStatus = value;
-            Notify();
-        }
-    }
-
-    public DiscoveredPeer? SelectedPeer
-    {
-        get => selectedPeer;
-        set
-        {
-            selectedPeer = value;
-            Notify();
-            Notify(nameof(CanConnectDiscovered));
-        }
-    }
-    public uint BrushColor { get; set; } = 0xFF253449;
-    public bool CanEditSession => !isSessionLocked || (OperationCount == 0 && ConnectedPeers == 0);
-    public bool CanStartListening => !isListening && !isBusy && !isDisposed;
-    public bool CanConnect => isListening && !isBusy && !isDisposed;
-    public bool CanDisconnect => isListening && !isBusy && !isDisposed;
-    public string ConnectionStatus
-    {
-        get
-        {
-            if (ConnectedPeers > 0)
-            {
-                return "Підключено";
-            }
-            if (isOffline)
-            {
-                return "Офлайн";
-            }
-            if (hadConnection && isListening)
-            {
-                return "Повторне підключення…";
-            }
-            return isListening ? "Очікування учасників" : "Не підключено";
-        }
-    }
-
-    public string SessionId
-    {
-        get => sessionId;
-        set
-        {
-            sessionId = value;
-            Notify();
-        }
-    }
-
-    public string LocalPort
-    {
-        get => localPort;
-        set
-        {
-            localPort = value;
-            Notify();
-        }
-    }
-
-    public string RemoteAddress
-    {
-        get => remoteAddress;
-        set
-        {
-            remoteAddress = value;
-            Notify();
-        }
-    }
-
-    public string RemotePort
-    {
-        get => remotePort;
-        set
-        {
-            remotePort = value;
+            brushColor = value;
             Notify();
         }
     }
@@ -158,407 +45,94 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         }
     }
 
-    public string Status
+    public bool FillShapes
     {
-        get => status;
-        private set
+        get => fillShapes;
+        set
         {
-            status = value;
+            fillShapes = value;
             Notify();
         }
     }
 
+    // Existing bindings keep their names; Session owns connection state.
+    public string SessionId
+    {
+        get => Session.SessionId;
+        set => Session.SessionId = value;
+    }
+    public string LocalPort
+    {
+        get => Session.LocalPort;
+        set => Session.LocalPort = value;
+    }
+    public string RemoteAddress
+    {
+        get => Session.RemoteAddress;
+        set => Session.RemoteAddress = value;
+    }
+    public string RemotePort
+    {
+        get => Session.RemotePort;
+        set => Session.RemotePort = value;
+    }
+    public string SessionTitle => Session.SessionTitle;
+    public string ConnectionStatus => Session.ConnectionStatus;
+    public string DiscoveryStatus => Session.DiscoveryStatus;
+    public int ConnectedPeers => Session.ConnectedPeers;
+    public bool CanEditSession => Session.CanEditSession;
+    public bool CanStartListening => Session.CanStartListening;
+    public bool CanConnect => Session.CanConnect;
+    public bool CanDisconnect => Session.CanDisconnect;
+    public bool CanConnectDiscovered => Session.CanConnectDiscovered;
+    public bool CanCreateSession => Session.CanCreateSession;
+    public bool CanSearchSessions => Session.CanSearchSessions;
+    public bool CanJoinSession => Session.CanJoinSession;
+    public ImmutableArray<DiscoveredPeer> DiscoveredPeers => Session.DiscoveredPeers;
+    public ImmutableArray<DiscoveredPeer> AvailableSessions => Session.AvailableSessions;
+    public DiscoveredPeer? SelectedPeer
+    {
+        get => Session.SelectedPeer;
+        set => Session.SelectedPeer = value;
+    }
+    public DiscoveredPeer? SelectedSession
+    {
+        get => Session.SelectedSession;
+        set => Session.SelectedSession = value;
+    }
+    public string Status
+    {
+        get => Session.Status;
+        private set => Session.Status = value;
+    }
+
     public MainWindowViewModel(string[]? args = null)
     {
-        if (args is not null && args.Length == 3)
-        {
-            localPort = args[0];
-            sessionId = args[1];
-            remotePort = args[2];
-        }
-        else if (args is not null && args.Length > 0)
-        {
-            status = "Параметри запуску: <локальний порт> <SessionId> <віддалений порт>.";
-        }
-        bool hasValidSession = Guid.TryParse(sessionId, out var parsedSession) && parsedSession != Guid.Empty;
-        Guid initialSession = hasValidSession ? parsedSession : Guid.NewGuid();
-        engine = new SyncEngine(Guid.NewGuid(), initialSession);
-        sendingTask = Task.Run(SendOperationsAsync);
+        Session = new SessionViewModel(args);
+        Session.PropertyChanged += OnSessionPropertyChanged;
+        Session.DocumentChanged += RefreshDocument;
     }
 
-    public async Task CreateSessionAsync()
-    {
-        if (!CanCreateSession)
-        {
-            return;
-        }
-        if (engine.GetOperations().IsEmpty && !isSessionLocked)
-        {
-            SessionId = Guid.NewGuid().ToString();
-        }
-        LocalPort = "0";
-        await StartListeningAsync();
-        if (isListening)
-        {
-            Status = "Сесію створено. Інші пристрої можуть приєднатися.";
-        }
-    }
-
-    public async Task SearchSessionsAsync()
-    {
-        if (!CanSearchSessions)
-        {
-            return;
-        }
-        SetBusy(true);
-        DiscoveryStatus = "Пошук сесій…";
-        try
-        {
-            await StartDiscoveryAsync(includeOtherSessions: true);
-        }
-        finally
-        {
-            SetBusy(false);
-        }
-    }
-
-    public async Task JoinSelectedSessionAsync()
-    {
-        var selected = SelectedSession;
-        if (!CanJoinSession || selected is null)
-        {
-            return;
-        }
-        if (!await PrepareSessionAsync(selected.SessionId))
-        {
-            return;
-        }
-        RemoteAddress = selected.Address;
-        RemotePort = selected.TcpPort.ToString();
-        if (!isListening)
-        {
-            LocalPort = "0";
-            await StartListeningAsync();
-        }
-        await ConnectAsync();
-    }
-
-    public async Task JoinManualSessionAsync()
-    {
-        if (isBusy || isDisposed)
-        {
-            return;
-        }
-        if (!Guid.TryParse(SessionId, out var requestedSession) || requestedSession == Guid.Empty)
-        {
-            Status = "Вкажіть повний ідентифікатор сесії з іншого пристрою.";
-            return;
-        }
-        if (!IPAddress.TryParse(RemoteAddress, out _) || !int.TryParse(RemotePort, out int port) || port < 1 || port > 65535)
-        {
-            Status = "Перевірте IP-адресу та порт іншого пристрою.";
-            return;
-        }
-        if (!await PrepareSessionAsync(requestedSession))
-        {
-            return;
-        }
-        if (!isListening)
-        {
-            LocalPort = "0";
-            await StartListeningAsync();
-        }
-        await ConnectAsync();
-    }
-
-    private async Task<bool> PrepareSessionAsync(Guid requestedSession)
-    {
-        if (requestedSession == Guid.Empty || isDisposed || isBusy)
-        {
-            return false;
-        }
-        if (engine.SessionId == requestedSession)
-        {
-            return true;
-        }
-        if (!engine.GetOperations().IsEmpty)
-        {
-            Status = "Документ уже містить зміни. Іншу сесію не відкрито, щоб не втратити малюнок.";
-            return false;
-        }
-        SetBusy(true);
-        try
-        {
-            if (discovery is not null)
-            {
-                discovery.Changed -= OnDiscoveryChanged;
-                discovery.Error -= OnDiscoveryError;
-                await discovery.DisposeAsync();
-                discovery = null;
-            }
-            if (peer is not null)
-            {
-                peer.Changed -= OnPeerChanged;
-                peer.Error -= OnPeerError;
-                await peer.DisposeAsync();
-                peer = null;
-            }
-            await meshTask;
-            engine = new SyncEngine(engine.PeerId, requestedSession);
-            SessionId = requestedSession.ToString();
-            isSessionLocked = false;
-            isListening = false;
-            isOffline = false;
-            hadConnection = false;
-            Notify(nameof(CanEditSession));
-            RefreshDocument();
-            return true;
-        }
-        finally
-        {
-            SetBusy(false);
-        }
-    }
-
-    public async Task StartListeningAsync()
-    {
-        if (!CanStartListening || isDisposed)
-        {
-            return;
-        }
-        if (!int.TryParse(LocalPort, out int port) || port < 0 || port > 65535)
-        {
-            Status = "Локальний порт має бути від 0 до 65535 (0 — вільний порт).";
-            return;
-        }
-        if (!EnsureSession())
-        {
-            return;
-        }
-
-        SetBusy(true);
-        var newPeer = new TcpPeer(engine);
-        newPeer.Changed += OnPeerChanged;
-        newPeer.Error += OnPeerError;
-        try
-        {
-            await Task.Run(() => newPeer.Start(port), lifetime.Token);
-            if (isDisposed)
-            {
-                newPeer.Changed -= OnPeerChanged;
-                newPeer.Error -= OnPeerError;
-                await newPeer.DisposeAsync();
-                return;
-            }
-            peer = newPeer;
-            isListening = true;
-            LocalPort = peer.Port.ToString();
-            Status = $"Прослуховування порту {LocalPort}.";
-            RefreshDocument();
-            await StartDiscoveryAsync();
-        }
-        catch (Exception exception) when (exception is SocketException || exception is ArgumentException || exception is OperationCanceledException)
-        {
-            newPeer.Changed -= OnPeerChanged;
-            newPeer.Error -= OnPeerError;
-            await newPeer.DisposeAsync();
-            Status = "Не вдалося відкрити локальний порт. Спробуйте інший або залиште 0.";
-        }
-        finally
-        {
-            SetBusy(false);
-        }
-    }
-
-    private async Task StartDiscoveryAsync(bool includeOtherSessions = false)
-    {
-        if (discovery is not null)
-        {
-            discovery.Changed -= OnDiscoveryChanged;
-            discovery.Error -= OnDiscoveryError;
-            await discovery.DisposeAsync();
-            discovery = null;
-        }
-        var newDiscovery = new PeerDiscovery(engine.PeerId, engine.SessionId, includeOtherSessions);
-        newDiscovery.Changed += OnDiscoveryChanged;
-        newDiscovery.Error += OnDiscoveryError;
-        try
-        {
-            int tcpPort = peer?.Port ?? 0;
-            await Task.Run(() =>
-            {
-                if (tcpPort == 0)
-                {
-                    newDiscovery.StartBrowsing();
-                }
-                else
-                {
-                    newDiscovery.Start(tcpPort);
-                }
-            }, lifetime.Token);
-            if (isDisposed)
-            {
-                newDiscovery.Changed -= OnDiscoveryChanged;
-                newDiscovery.Error -= OnDiscoveryError;
-                await newDiscovery.DisposeAsync();
-                return;
-            }
-            discovery = newDiscovery;
-            RefreshDiscoveredPeers();
-        }
-        catch (Exception exception) when (exception is IOException || exception is SocketException || exception is NetworkInformationException
-            || exception is ArgumentException || exception is OperationCanceledException)
-        {
-            newDiscovery.Changed -= OnDiscoveryChanged;
-            newDiscovery.Error -= OnDiscoveryError;
-            await newDiscovery.DisposeAsync();
-            DiscoveryStatus = "Пошук недоступний. Скористайтеся ручним підключенням за IP.";
-        }
-    }
-
-    private void OnDiscoveryChanged() => Dispatcher.UIThread.Post(RefreshDiscoveredPeers);
-
-    private void OnDiscoveryError(string message)
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (!isDisposed)
-            {
-                DiscoveryStatus = "Не вдалося знайти сесії. Ручне підключення за IP доступне.";
-            }
-        });
-    }
-
-    private void RefreshDiscoveredPeers()
-    {
-        if (isDisposed || discovery is null)
-        {
-            return;
-        }
-        Guid? selectedId = SelectedPeer?.PeerId;
-        Guid? selectedSessionId = SelectedSession?.SessionId;
-        DiscoveredPeers = discovery.GetPeers();
-        Notify(nameof(DiscoveredPeers));
-        SelectedPeer = DiscoveredPeers.FirstOrDefault(found => found.PeerId == selectedId);
-        var sessions = new List<DiscoveredPeer>();
-        var sessionIds = new HashSet<Guid>();
-        foreach (var found in DiscoveredPeers)
-        {
-            if (sessionIds.Add(found.SessionId))
-            {
-                sessions.Add(found);
-            }
-        }
-        AvailableSessions = sessions.ToImmutableArray();
-        Notify(nameof(AvailableSessions));
-        SelectedSession = AvailableSessions.FirstOrDefault(found => found.SessionId == selectedSessionId);
-        DiscoveryStatus = AvailableSessions.IsEmpty ? "Пошук сесій… Можна підключитися вручну." : $"Знайдено сесій: {AvailableSessions.Length}";
-        if (isListening && !isOffline && !isBusy && meshTask.IsCompleted)
-        {
-            meshTask = ConnectMeshAsync();
-        }
-    }
-
-    private async Task ConnectMeshAsync()
-    {
-        var currentPeer = peer;
-        if (currentPeer is null)
-        {
-            return;
-        }
-        foreach (var found in DiscoveredPeers)
-        {
-            if (isDisposed || isOffline || found.SessionId != engine.SessionId || currentPeer.IsConnected(found.PeerId))
-            {
-                continue;
-            }
-            // Only one side starts discovery connections; manual connections can use either direction.
-            if (engine.PeerId.CompareTo(found.PeerId) > 0)
-            {
-                continue;
-            }
-            try
-            {
-                await currentPeer.ConnectAsync(found.Address, found.TcpPort, lifetime.Token);
-            }
-            catch (Exception exception) when (exception is IOException || exception is InvalidDataException || exception is SocketException
-                || exception is OperationCanceledException || exception is ArgumentException)
-            {
-            }
-        }
-    }
-
-    public async Task ConnectDiscoveredAsync()
-    {
-        if (!CanConnectDiscovered || SelectedPeer is null)
-        {
-            return;
-        }
-        RemoteAddress = SelectedPeer.Address;
-        RemotePort = SelectedPeer.TcpPort.ToString();
-        await ConnectAsync();
-    }
-
-    public async Task ConnectAsync()
-    {
-        if (!CanConnect || peer is null || isDisposed)
-        {
-            return;
-        }
-        if (!IPAddress.TryParse(RemoteAddress, out _) || !int.TryParse(RemotePort, out int port) || port < 1 || port > 65535)
-        {
-            Status = "Вкажіть правильну IP-адресу та порт від 1 до 65535.";
-            return;
-        }
-
-        SetBusy(true);
-        isOffline = false;
-        Status = "Підключення…";
-        try
-        {
-            await peer.ConnectAsync(RemoteAddress, port, lifetime.Token);
-            Status = "З'єднання встановлено. Зміни передаються автоматично.";
-        }
-        catch (Exception exception) when (exception is IOException || exception is InvalidDataException || exception is SocketException
-            || exception is OperationCanceledException || exception is ArgumentException)
-        {
-            Status = "Не вдалося підключитися. Перевірте адресу, сесію та доступність іншого пристрою.";
-        }
-        finally
-        {
-            RefreshDocument();
-            SetBusy(false);
-        }
-    }
-
-    public void Disconnect()
-    {
-        isOffline = true;
-        peer?.DisconnectAll();
-        Status = "Відключено. Малювання офлайн доступне; для синхронізації підключіться знову.";
-        RefreshDocument();
-    }
-
-    public void ResumeNetworking()
-    {
-        if (isDisposed || isOffline || peer is null)
-        {
-            return;
-        }
-        peer.DisconnectAll(reconnect: true);
-        RefreshDocument();
-    }
+    public Task CreateSessionAsync() => Session.CreateSessionAsync();
+    public Task SearchSessionsAsync() => Session.SearchSessionsAsync();
+    public Task JoinSelectedSessionAsync() => Session.JoinSelectedSessionAsync();
+    public Task JoinManualSessionAsync() => Session.JoinManualSessionAsync();
+    public Task StartListeningAsync() => Session.StartListeningAsync();
+    public Task ConnectAsync() => Session.ConnectAsync();
+    public Task ConnectDiscoveredAsync() => Session.ConnectDiscoveredAsync();
+    public void Disconnect() => Session.Disconnect();
+    public void ResumeNetworking() => Session.ResumeNetworking();
 
     public bool BeginStroke(StrokePoint point)
     {
-        if (isDisposed || !EnsureSession())
+        if (isDisposed || !Session.EnsureSession())
         {
             return false;
         }
         EndStroke();
-        var begin = engine.BeginStroke(BrushColor, BrushWidth);
+        var begin = Engine.BeginStroke(BrushColor, BrushWidth);
         activeStrokeId = begin.StrokeId;
-        PublishOperation(begin);
+        Session.PublishOperation(begin);
         AppendStroke(point);
         return true;
     }
@@ -571,7 +145,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         }
         try
         {
-            PublishOperation(engine.AppendStroke(activeStrokeId.Value, [point]));
+            Session.PublishOperation(Engine.AppendStroke(activeStrokeId.Value, [point]));
         }
         catch (InvalidOperationException)
         {
@@ -589,7 +163,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         }
         try
         {
-            PublishOperation(engine.EndStroke(activeStrokeId.Value));
+            Session.PublishOperation(Engine.EndStroke(activeStrokeId.Value));
         }
         catch (InvalidOperationException)
         {
@@ -598,74 +172,77 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         activeStrokeId = null;
     }
 
-    public void ClearCanvas()
+    public void AddShape(ShapeKind kind, StrokePoint start, StrokePoint end)
     {
-        if (isDisposed || !EnsureSession())
+        if (isDisposed || !Session.EnsureSession())
         {
             return;
         }
         EndStroke();
-        PublishOperation(engine.ClearCanvas());
-        Status = "Відомі штрихи видалено.";
-    }
-
-    public Snapshot GetSnapshot() => engine.CreateSnapshot();
-
-    private bool EnsureSession()
-    {
-        if (isSessionLocked)
-        {
-            return true;
-        }
-        if (!Guid.TryParse(SessionId, out var requestedSession) || requestedSession == Guid.Empty)
-        {
-            Status = "SessionId має бути непорожнім GUID. Скопіюйте його з іншого вікна.";
-            return false;
-        }
-        if (engine.SessionId != requestedSession)
-        {
-            engine = new SyncEngine(engine.PeerId, requestedSession);
-        }
-        isSessionLocked = true;
-        Notify(nameof(CanEditSession));
-        return true;
-    }
-
-    private void PublishOperation(Operation operation)
-    {
-        outgoing.Writer.TryWrite(operation);
-        RefreshDocument();
-    }
-
-    private async Task SendOperationsAsync()
-    {
+        uint? fill = FillShapes && kind != ShapeKind.Line ? BrushColor : null;
         try
         {
-            await foreach (var operation in outgoing.Reader.ReadAllAsync(lifetime.Token))
-            {
-                var currentPeer = peer;
-                if (currentPeer is not null)
-                {
-                    await currentPeer.SendOperationAsync(operation, lifetime.Token);
-                }
-            }
+            Session.PublishOperation(Engine.AddShape(kind, start, end, BrushColor, BrushWidth, fill));
         }
-        catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+        catch (ArgumentException)
         {
+            Status = "Не вдалося створити фігуру. Перевірте її координати та товщину.";
         }
     }
 
-    private void OnPeerChanged() => Dispatcher.UIThread.Post(RefreshDocument);
-
-    private void OnPeerError(string message)
+    public void MoveObject(Guid objectId, StrokePoint offset)
     {
-        Dispatcher.UIThread.Post(() =>
+        if (isDisposed || !Session.EnsureSession())
         {
-            if (!isDisposed && !isOffline)
-            {
-                Status = "З'єднання втрачено. Очікуємо повторного підключення.";
-            }
-        });
+            return;
+        }
+        try
+        {
+            Session.PublishOperation(Engine.MoveObject(objectId, offset));
+        }
+        catch (InvalidOperationException)
+        {
+            Status = "Об'єкт уже видалено або змінено іншим учасником.";
+            RefreshDocument();
+        }
+        catch (ArgumentException)
+        {
+            Status = "Не вдалося перемістити об'єкт. Перевірте координати.";
+        }
+    }
+
+    public void RemoveObject(Guid objectId)
+    {
+        if (isDisposed || !Session.EnsureSession())
+        {
+            return;
+        }
+        try
+        {
+            Session.PublishOperation(Engine.RemoveObject(objectId));
+        }
+        catch (ArgumentException)
+        {
+            Status = "Не вдалося видалити вибраний об'єкт.";
+        }
+    }
+
+    public void ClearCanvas()
+    {
+        if (isDisposed || !Session.EnsureSession())
+        {
+            return;
+        }
+        EndStroke();
+        Session.PublishOperation(Engine.ClearCanvas());
+        Status = "Відомі об'єкти видалено.";
+    }
+
+    public Snapshot GetSnapshot() => Engine.CreateSnapshot();
+
+    private void OnSessionPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        Notify(eventArgs.PropertyName);
     }
 
     private void RefreshDocument()
@@ -674,33 +251,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         {
             return;
         }
-        var snapshot = engine.CreateSnapshot();
+        var snapshot = Engine.CreateSnapshot();
         Strokes = snapshot.Strokes;
+        Shapes = snapshot.Shapes;
         OperationCount = snapshot.Operations.Length;
-        ConnectedPeers = peer?.ConnectionCount ?? 0;
-        if (ConnectedPeers > 0)
-        {
-            hadConnection = true;
-        }
         Notify(nameof(Strokes));
+        Notify(nameof(Shapes));
         Notify(nameof(StrokeCount));
+        Notify(nameof(ObjectCount));
         Notify(nameof(OperationCount));
-        Notify(nameof(ConnectedPeers));
-        Notify(nameof(ConnectionStatus));
-        Notify(nameof(SessionTitle));
-        Notify(nameof(CanEditSession));
-    }
-
-    private void SetBusy(bool value)
-    {
-        isBusy = value;
-        Notify(nameof(CanStartListening));
-        Notify(nameof(CanConnect));
-        Notify(nameof(CanDisconnect));
-        Notify(nameof(CanConnectDiscovered));
-        Notify(nameof(CanCreateSession));
-        Notify(nameof(CanSearchSessions));
-        Notify(nameof(CanJoinSession));
     }
 
     private void Notify([CallerMemberName] string? propertyName = null)
@@ -716,22 +275,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         }
         EndStroke();
         isDisposed = true;
-        outgoing.Writer.TryComplete();
-        await lifetime.CancelAsync();
-        if (discovery is not null)
-        {
-            discovery.Changed -= OnDiscoveryChanged;
-            discovery.Error -= OnDiscoveryError;
-            await discovery.DisposeAsync();
-        }
-        if (peer is not null)
-        {
-            peer.Changed -= OnPeerChanged;
-            peer.Error -= OnPeerError;
-            await peer.DisposeAsync();
-        }
-        await meshTask;
-        await sendingTask;
-        lifetime.Dispose();
+        Session.PropertyChanged -= OnSessionPropertyChanged;
+        Session.DocumentChanged -= RefreshDocument;
+        await Session.DisposeAsync();
     }
 }
