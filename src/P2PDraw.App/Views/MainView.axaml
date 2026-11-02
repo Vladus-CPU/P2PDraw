@@ -1,110 +1,112 @@
 <UserControl xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:controls="using:P2PDraw.App.Controls"
-        xmlns:vm="using:P2PDraw.App.ViewModels"
-        xmlns:discovery="using:P2PDraw.Networking.Discovery"
-        x:Class="P2PDraw.App.Views.MainView"
-        x:DataType="vm:MainWindowViewModel"
-        Background="#EEF1F5">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:P2PDraw.App.Controls"
+             xmlns:vm="using:P2PDraw.App.ViewModels"
+             xmlns:discovery="using:P2PDraw.Networking.Discovery"
+             x:Class="P2PDraw.App.Views.MainView" x:DataType="vm:MainWindowViewModel" Background="#EEF1F5">
     <UserControl.Styles>
         <Style Selector="TextBlock.label">
             <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="#59677B" />
+            <Setter Property="Foreground" Value="#5B687A" />
         </Style>
         <Style Selector="Button">
-            <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="Padding" Value="14,9" />
+            <Setter Property="CornerRadius" Value="7" />
+            <Setter Property="MinHeight" Value="44" />
+            <Setter Property="Padding" Value="12,8" />
+        </Style>
+        <Style Selector="Button.tool">
+            <Setter Property="Width" Value="44" />
+            <Setter Property="Padding" Value="10" />
+        </Style>
+        <Style Selector="Button.selected">
+            <Setter Property="Background" Value="#D8E7FC" />
+            <Setter Property="Foreground" Value="#205C9F" />
         </Style>
     </UserControl.Styles>
-    <Grid x:Name="RootGrid" RowDefinitions="Auto,*,Auto" Margin="22">
-        <Grid x:Name="HeaderGrid" ColumnDefinitions="*,Auto" Margin="0,0,0,18">
-            <StackPanel Spacing="3">
-                <TextBlock x:Name="AppTitle" Text="P2PDraw" FontSize="27" FontWeight="SemiBold" Foreground="#253449" />
-                <TextBlock x:Name="Subtitle" Text="Спільне малювання в локальній мережі" Classes="label" />
+    <Grid x:Name="RootGrid" RowDefinitions="Auto,Auto,*,Auto" Margin="16">
+        <Grid x:Name="HeaderGrid" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="0,0,0,10">
+            <StackPanel Spacing="1">
+                <TextBlock x:Name="AppTitle" Text="P2PDraw" FontSize="23" FontWeight="SemiBold" Foreground="#253449" />
+                <TextBlock Text="{Binding SessionTitle}" Classes="label" TextTrimming="CharacterEllipsis" />
             </StackPanel>
-            <Border Grid.Column="1" Background="#E0EAF8" CornerRadius="8" Padding="16,10" VerticalAlignment="Center">
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                    <TextBlock Text="{Binding ConnectionStatus}" FontWeight="SemiBold" Foreground="#34547A" />
-                    <TextBlock Text="{Binding ConnectedPeers, StringFormat='Вузлів: {0}'}" Foreground="#34547A" />
-                </StackPanel>
-            </Border>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                <TextBlock Text="{Binding ConnectionStatus}" FontSize="12" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding ConnectedPeers, StringFormat='Підключень: {0}'}" Classes="label" />
+            </StackPanel>
+            <Button x:Name="SessionButton" Grid.Column="2" Content="Сесія" Click="OnSessionClicked" ToolTip.Tip="Створення сесії та підключення" />
         </Grid>
-
-        <Grid x:Name="BodyGrid" Grid.Row="1" ColumnDefinitions="280,*" RowDefinitions="*" ColumnSpacing="18" RowSpacing="10">
-            <Border x:Name="NetworkPanel" Background="White" BorderBrush="#DAE0E8" BorderThickness="1" CornerRadius="10" Padding="14">
-                <Expander x:Name="NetworkExpander" Header="Підключення та сесія" IsExpanded="True" HorizontalContentAlignment="Stretch">
+        <Border x:Name="BrushPanel" Grid.Row="1" Background="White" CornerRadius="9" BorderBrush="#D7DFEA" BorderThickness="1" Padding="8" Margin="0,0,0,10">
+            <WrapPanel Orientation="Horizontal">
+                <Button x:Name="BrushTool" Classes="tool selected" Tag="Brush" ToolTip.Tip="Пензель" Margin="0,0,6,2">
+                    <Path Data="M3,16 L4,12 14,2 18,6 8,16 Z M4,12 L8,16" Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1.8" Width="22" Height="22" Stretch="Uniform" />
+                </Button>
+                <ComboBox x:Name="BrushColors" Width="104" MinHeight="44" Margin="0,0,8,2" SelectedIndex="0" SelectionChanged="OnColorChanged" ToolTip.Tip="Колір контуру">
+                    <ComboBoxItem Content="Чорний" Tag="#FF253449" />
+                    <ComboBoxItem Content="Синій" Tag="#FF2563EB" />
+                    <ComboBoxItem Content="Червоний" Tag="#FFDC2626" />
+                    <ComboBoxItem Content="Зелений" Tag="#FF16835D" />
+                    <ComboBoxItem Content="Фіолетовий" Tag="#FF7C3AED" />
+                </ComboBox>
+                <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,8,2" VerticalAlignment="Center">
+                    <Slider x:Name="BrushSize" Width="85" Minimum="1" Maximum="20" TickFrequency="1" IsSnapToTickEnabled="True"
+                            Value="{Binding BrushWidth, Mode=TwoWay}" ToolTip.Tip="Товщина контуру" />
+                    <TextBlock Text="{Binding BrushWidth, StringFormat='{}{0:0} px'}" Width="36" VerticalAlignment="Center" />
+                </StackPanel>
+                <Button x:Name="ClearButton" Content="Очистити" Click="OnClearClicked" Foreground="#A52D36" ToolTip.Tip="Очистити відомі об’єкти полотна" />
+            </WrapPanel>
+        </Border>
+        <Grid x:Name="BodyGrid" Grid.Row="2">
+            <Border BorderBrush="#CCD5E1" BorderThickness="1" Background="White" CornerRadius="4" ClipToBounds="True">
+                <controls:DrawingCanvas x:Name="DrawingSurface" Strokes="{Binding Strokes}" />
+            </Border>
+            <Border x:Name="NetworkPanel" IsVisible="False" MaxWidth="440" HorizontalAlignment="Right" VerticalAlignment="Top"
+                    Background="White" BorderBrush="#B8C7DA" BorderThickness="1" CornerRadius="10" Padding="14">
+                <Expander x:Name="NetworkExpander" Header="Сесії та підключення" IsExpanded="False" HorizontalContentAlignment="Stretch">
                     <ScrollViewer x:Name="NetworkScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="SessionId" Classes="label" />
-                            <TextBox x:Name="SessionIdBox" Text="{Binding SessionId, Mode=TwoWay}"
-                                     IsReadOnly="{Binding !CanEditSession}" FontFamily="Consolas" FontSize="10" MinHeight="36" />
-                            <TextBlock Text="В обох вікнах має бути однаковий SessionId. Вкажіть його до малювання або запуску мережі."
-                                       Classes="label" TextWrapping="Wrap" Margin="0,0,0,6" />
-                            <TextBlock Text="Локальний TCP-порт" Classes="label" />
-                            <TextBox x:Name="LocalPortBox" Text="{Binding LocalPort, Mode=TwoWay}" IsReadOnly="{Binding !CanStartListening}" />
-                            <Button x:Name="ListenButton" Content="Слухати" Click="OnListenClicked" IsEnabled="{Binding CanStartListening}"
-                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-                            <Border Height="1" Background="#E7EBF0" Margin="0,6" />
-                            <TextBlock Text="IP-адреса" Classes="label" />
-                            <TextBox x:Name="RemoteAddressBox" Text="{Binding RemoteAddress, Mode=TwoWay}" />
-                            <TextBlock Text="TCP-порт" Classes="label" />
-                            <TextBox x:Name="RemotePortBox" Text="{Binding RemotePort, Mode=TwoWay}" />
-                            <Button x:Name="ConnectButton" Content="Підключити" Click="OnConnectClicked" IsEnabled="{Binding CanConnect}"
-                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Background="#345F98" Foreground="White" />
-                            <Button x:Name="DisconnectButton" Content="Відключити" Click="OnDisconnectClicked" IsEnabled="{Binding CanDisconnect}"
-                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-                            <Border Background="White" BorderBrush="#DAE0E8" BorderThickness="1" CornerRadius="8" Padding="12">
-                                <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
-                                    <ComboBox x:Name="DiscoveredPeerList" ItemsSource="{Binding DiscoveredPeers}" SelectedItem="{Binding SelectedPeer, Mode=TwoWay}"
-                                              HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" PlaceholderText="Знайдені вузли цієї сесії">
+                        <StackPanel Spacing="8" Margin="0,8,0,0">
+                            <Button x:Name="CreateSessionButton" Content="Створити сесію" Click="OnCreateSessionClicked" IsEnabled="{Binding CanCreateSession}" HorizontalAlignment="Stretch" />
+                            <Button x:Name="SearchSessionsButton" Content="Знайти сесії" Click="OnSearchSessionsClicked" IsEnabled="{Binding CanSearchSessions}" HorizontalAlignment="Stretch" />
+                            <TextBlock Text="{Binding DiscoveryStatus}" Classes="label" TextWrapping="Wrap" />
+                            <ComboBox x:Name="SessionList" ItemsSource="{Binding AvailableSessions}" SelectedItem="{Binding SelectedSession, Mode=TwoWay}"
+                                      HorizontalAlignment="Stretch" PlaceholderText="Сесії в локальній мережі">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="discovery:DiscoveredPeer"><TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" /></DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <Button x:Name="JoinSessionButton" Content="Приєднатися" Click="OnJoinSessionClicked" IsEnabled="{Binding CanJoinSession}" HorizontalAlignment="Stretch" />
+                            <Expander Header="Підключитися вручну" HorizontalContentAlignment="Stretch">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="SessionId із запрошення" Classes="label" />
+                                    <TextBox x:Name="SessionIdBox" Text="{Binding SessionId, Mode=TwoWay}" IsReadOnly="{Binding !CanEditSession}" FontSize="11" />
+                                    <TextBlock Text="IP-адреса пристрою" Classes="label" />
+                                    <TextBox x:Name="RemoteAddressBox" Text="{Binding RemoteAddress, Mode=TwoWay}" />
+                                    <TextBlock Text="TCP-порт пристрою" Classes="label" />
+                                    <TextBox x:Name="RemotePortBox" Text="{Binding RemotePort, Mode=TwoWay}" />
+                                    <Button Content="Приєднатися за IP" Click="OnJoinManualClicked" HorizontalAlignment="Stretch" />
+                                    <TextBlock Text="Локальний TCP-порт (0 — автоматично)" Classes="label" />
+                                    <TextBox x:Name="LocalPortBox" Text="{Binding LocalPort, Mode=TwoWay}" IsReadOnly="{Binding !CanStartListening}" />
+                                    <Button x:Name="ListenButton" Content="Слухати" Click="OnListenClicked" IsEnabled="{Binding CanStartListening}" />
+                                    <Button x:Name="ConnectButton" Content="Підключити" Click="OnConnectClicked" IsEnabled="{Binding CanConnect}" />
+                                    <TextBlock Text="Вузли поточної сесії" Classes="label" />
+                                    <ComboBox x:Name="DiscoveredPeerList" ItemsSource="{Binding DiscoveredPeers}" SelectedItem="{Binding SelectedPeer, Mode=TwoWay}" HorizontalAlignment="Stretch">
                                         <ComboBox.ItemTemplate>
-                                            <DataTemplate x:DataType="discovery:DiscoveredPeer">
-                                                <TextBlock Text="{Binding DisplayName}" />
-                                            </DataTemplate>
+                                            <DataTemplate x:DataType="discovery:DiscoveredPeer"><TextBlock Text="{Binding DisplayName}" /></DataTemplate>
                                         </ComboBox.ItemTemplate>
                                     </ComboBox>
-                                    <Button x:Name="ConnectDiscoveredButton" Grid.Row="1" Content="Підключити вибраний" Click="OnConnectDiscoveredClicked"
-                                            IsEnabled="{Binding CanConnectDiscovered}" />
-                                    <TextBlock Grid.Row="2" Text="{Binding DiscoveryStatus}" Classes="label" TextWrapping="Wrap" />
-                                </Grid>
-                            </Border>
+                                    <Button x:Name="ConnectDiscoveredButton" Content="Підключити вибраний" Click="OnConnectDiscoveredClicked" IsEnabled="{Binding CanConnectDiscovered}" />
+                                    <TextBlock Text="{Binding OperationCount, StringFormat='Операцій у журналі: {0}'}" Classes="label" />
+                                </StackPanel>
+                            </Expander>
+                            <Button x:Name="DisconnectButton" Content="Відключити" Click="OnDisconnectClicked" IsEnabled="{Binding CanDisconnect}" />
                         </StackPanel>
                     </ScrollViewer>
                 </Expander>
             </Border>
-
-            <Grid x:Name="EditorGrid" Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="10">
-                <Border x:Name="BrushPanel" Background="White" BorderBrush="#DAE0E8" BorderThickness="1" CornerRadius="10" Padding="14">
-                    <WrapPanel Orientation="Horizontal">
-                        <ComboBox x:Name="BrushColors" Width="105" Margin="0,0,10,4" SelectedIndex="0" SelectionChanged="OnColorChanged">
-                            <ComboBoxItem Content="Чорний" Tag="#FF253449" />
-                            <ComboBoxItem Content="Синій" Tag="#FF2563EB" />
-                            <ComboBoxItem Content="Червоний" Tag="#FFDC2626" />
-                            <ComboBoxItem Content="Зелений" Tag="#FF16835D" />
-                            <ComboBoxItem Content="Фіолетовий" Tag="#FF7C3AED" />
-                        </ComboBox>
-                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,10,4">
-                            <TextBlock Text="Пензель" Classes="label" VerticalAlignment="Center" />
-                            <Slider x:Name="BrushSize" Width="80" Minimum="1" Maximum="20" TickFrequency="1"
-                                    IsSnapToTickEnabled="True" Value="{Binding BrushWidth, Mode=TwoWay}" />
-                            <TextBlock Text="{Binding BrushWidth, StringFormat='{}{0:0} px'}" Width="38" VerticalAlignment="Center" />
-                        </StackPanel>
-                        <Button x:Name="ClearButton" Content="Очистити" Click="OnClearClicked" Margin="0,0,0,4"
-                                Foreground="#A52D36" Background="#FFF0F0" />
-                    </WrapPanel>
-                </Border>
-                <Border Grid.Row="1" BorderBrush="#CBD3DF" BorderThickness="1" Background="White" CornerRadius="4" ClipToBounds="True">
-                    <controls:DrawingCanvas x:Name="DrawingSurface" Strokes="{Binding Strokes}" />
-                </Border>
-            </Grid>
         </Grid>
-
-        <Grid x:Name="FooterGrid" Grid.Row="2" ColumnDefinitions="*,Auto" Margin="2,14,2,0" ColumnSpacing="16">
-            <TextBlock Text="{Binding Status}" Classes="label" TextWrapping="Wrap" MaxHeight="48" TextTrimming="CharacterEllipsis" />
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16">
-                <TextBlock Text="{Binding StrokeCount, StringFormat='Штрихів: {0}'}" Classes="label" />
-                <TextBlock Text="{Binding OperationCount, StringFormat='Операцій: {0}'}" Classes="label" />
-            </StackPanel>
+        <Grid x:Name="FooterGrid" Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="0,8,0,0">
+            <TextBlock Text="{Binding Status}" Classes="label" TextTrimming="CharacterEllipsis" MaxHeight="32" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Text="{Binding StrokeCount, StringFormat='Об’єктів: {0}'}" Classes="label" VerticalAlignment="Center" />
+            <Button x:Name="ResetZoomButton" Grid.Column="2" Content="100%" Click="OnResetViewClicked" ToolTip.Tip="Повернути масштаб 100% і центр полотна" MinHeight="32" Padding="8,2" />
         </Grid>
     </Grid>
 </UserControl>

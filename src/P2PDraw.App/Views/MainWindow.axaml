@@ -4,7 +4,7 @@
         xmlns:vm="using:P2PDraw.App.ViewModels"
         x:Class="P2PDraw.App.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="{Binding LocalPort, StringFormat='P2PDraw · порт {0}'}"
+        Title="{Binding SessionTitle, StringFormat='P2PDraw · {0}'}"
         Width="1180" Height="760" MinWidth="1000" MinHeight="720" Background="#EEF1F5">
     <views:MainView x:Name="EditorView" />
 </Window>

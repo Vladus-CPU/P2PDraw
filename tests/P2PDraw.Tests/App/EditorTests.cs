@@ -14,7 +14,7 @@ using Xunit;
 
 namespace P2PDraw.Tests.App;
 
-public class EditorTests
+public partial class EditorTests
 {
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<P2PDraw.App.App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
 
@@ -309,6 +309,8 @@ public class EditorTests
             window.Width = window.MinWidth;
             window.Height = window.MinHeight;
             window.Show();
+            window.UpdateLayout();
+            window.Editor.FindControl<Button>("SessionButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             window.UpdateLayout();
             var disconnectButton = window.Editor.FindControl<Button>("DisconnectButton")!;
             var surface = window.Editor.FindControl<DrawingCanvas>("DrawingSurface")!;

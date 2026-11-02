@@ -16,7 +16,13 @@ public partial class MainView : UserControl
         DrawingSurface.StrokeStarted += point => Model?.BeginStroke(point);
         DrawingSurface.StrokeContinued += point => Model?.AppendStroke(point);
         DrawingSurface.StrokeFinished += () => Model?.EndStroke();
+        DrawingSurface.ViewChanged += () => ResetZoomButton.Content = $"{DrawingSurface.Zoom:P0}";
         SizeChanged += OnSizeChanged;
+        BodyGrid.SizeChanged += (_, eventArgs) =>
+        {
+            NetworkPanel.MaxHeight = eventArgs.NewSize.Height;
+            NetworkScroll.MaxHeight = Math.Max(0, Math.Min(440, eventArgs.NewSize.Height - 96));
+        };
     }
 
     private void OnSizeChanged(object? sender, SizeChangedEventArgs eventArgs)
@@ -27,22 +33,60 @@ public partial class MainView : UserControl
             return;
         }
         isCompact = compact;
-        RootGrid.Margin = new Thickness(compact ? 8 : 22);
-        HeaderGrid.Margin = new Thickness(0, 0, 0, compact ? 8 : 18);
+        RootGrid.Margin = new Thickness(compact ? 8 : 16);
         AppTitle.FontSize = compact ? 21 : 27;
         NetworkPanel.Padding = new Thickness(compact ? 4 : 14);
         BrushPanel.Padding = new Thickness(compact ? 8 : 14);
-        FooterGrid.Margin = new Thickness(2, compact ? 6 : 14, 2, 0);
-        Subtitle.IsVisible = !compact;
-        BodyGrid.ColumnDefinitions = new ColumnDefinitions(compact ? "*" : "280,*");
-        BodyGrid.RowDefinitions = new RowDefinitions(compact ? "Auto,*" : "*");
-        Grid.SetColumn(EditorGrid, compact ? 0 : 1);
-        Grid.SetRow(EditorGrid, compact ? 1 : 0);
-        NetworkExpander.IsExpanded = !compact;
-        NetworkScroll.MaxHeight = compact ? 260 : double.PositiveInfinity;
+        NetworkScroll.MaxHeight = compact ? 260 : 440;
     }
 
     private MainWindowViewModel? Model => DataContext as MainWindowViewModel;
+
+    private void OnSessionClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        NetworkPanel.IsVisible = !NetworkPanel.IsVisible;
+        NetworkExpander.IsExpanded = NetworkPanel.IsVisible;
+    }
+
+    private async void OnCreateSessionClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (Model is not null)
+        {
+            await Model.CreateSessionAsync();
+            if (Model.CanConnect)
+            {
+                NetworkPanel.IsVisible = false;
+            }
+        }
+    }
+
+    private async void OnSearchSessionsClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (Model is not null)
+        {
+            await Model.SearchSessionsAsync();
+        }
+    }
+
+    private async void OnJoinSessionClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (Model is not null)
+        {
+            await Model.JoinSelectedSessionAsync();
+            NetworkPanel.IsVisible = Model.ConnectedPeers == 0;
+        }
+    }
+
+    private async void OnJoinManualClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (Model is not null)
+        {
+            await Model.JoinManualSessionAsync();
+            NetworkPanel.IsVisible = Model.ConnectedPeers == 0;
+        }
+    }
+
+    private void OnResetViewClicked(object? sender, RoutedEventArgs eventArgs) => DrawingSurface.ResetView();
 
     protected override void OnDataContextChanged(EventArgs eventArgs)
     {
