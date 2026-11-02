@@ -14,8 +14,12 @@ namespace P2PDraw.Networking.Protocol;
 [JsonDerivedType(typeof(SyncCompleteMessage), "syncComplete")]
 public abstract record NetworkMessage;
 
-public sealed record HelloMessage(Guid PeerId, Guid SessionId, int ProtocolVersion) : NetworkMessage;
-public sealed record WelcomeMessage(Guid PeerId, Guid SessionId, int ProtocolVersion) : NetworkMessage;
+public sealed record PeerEndpoint(Guid PeerId, string Address, int Port);
+public sealed record HelloMessage(Guid PeerId, Guid SessionId, int ProtocolVersion, int ListeningPort = 0) : NetworkMessage;
+public sealed record WelcomeMessage(Guid PeerId, Guid SessionId, int ProtocolVersion) : NetworkMessage
+{
+    public ImmutableArray<PeerEndpoint> Peers { get; init; } = [];
+}
 public sealed record OperationMessage(Operation Operation) : NetworkMessage;
 public sealed record SyncRequestMessage(ImmutableArray<Guid> KnownOperationIds) : NetworkMessage;
 public sealed record SnapshotMessage(Snapshot Snapshot) : NetworkMessage;
