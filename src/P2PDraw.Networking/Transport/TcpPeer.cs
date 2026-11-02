@@ -9,7 +9,7 @@ namespace P2PDraw.Networking.Transport;
 
 public sealed class TcpPeer : IAsyncDisposable
 {
-    public const int ProtocolVersion = 4;
+    public const int ProtocolVersion = 5;
     private readonly object stateLock = new();
     private readonly SyncEngine engine;
     private readonly CancellationTokenSource lifetime = new();

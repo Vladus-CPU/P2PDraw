@@ -10,6 +10,76 @@ namespace P2PDraw.Tests.Networking;
 
 public class VectorPeerTests
 {
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public async Task ConcurrentResizesRecoverThroughSnapshotAndReconnect(int count)
+    {
+        var engines = new List<SyncEngine>();
+        var peers = new List<TcpPeer>();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        Guid sessionId = Guid.NewGuid();
+        try
+        {
+            for (int index = 0; index < count; index++)
+            {
+                var engine = new SyncEngine(Guid.NewGuid(), sessionId);
+                var peer = new TcpPeer(engine);
+                peer.Start(0, IPAddress.Loopback);
+                engines.Add(engine);
+                peers.Add(peer);
+            }
+            var added = engines[0].AddShape(ShapeKind.Rectangle, new(1, 2), new(30, 40), 0, 2);
+            engines[0].MoveObject(added.ShapeId, new(100, 200));
+            for (int index = 1; index < count; index++)
+            {
+                await peers[index].ConnectAsync("127.0.0.1", peers[0].Port, cancellationToken);
+            }
+            await WaitUntilAsync(() => engines.All(engine => engine.GetOperations().Length == 2)
+                && peers.All(peer => peer.ConnectionCount == count - 1));
+            var edits = new List<ShapeResize>();
+            for (int index = 0; index < count; index++)
+            {
+                edits.Add(engines[index].ResizeShape(added.ShapeId, new(index, index), new(50 + index, 60 + index)));
+            }
+            for (int index = count - 1; index >= 0; index--)
+            {
+                await peers[index].SendOperationAsync(edits[index], cancellationToken);
+                await peers[index].SendOperationAsync(edits[index], cancellationToken);
+            }
+            await WaitUntilAsync(() => engines.All(engine => engine.GetOperations().Length == count + 2));
+            var winner = edits.MaxBy(edit => edit.Stamp)!;
+            foreach (var engine in engines)
+            {
+                var shape = Assert.Single(engine.GetShapes());
+                Assert.Equal(winner.Start, shape.Start);
+                Assert.Equal(winner.End, shape.End);
+                Assert.Equal(new StrokePoint(100, 200), shape.Offset);
+                AssertMatchingDocuments(engines[0], engine);
+            }
+            peers[0].DisconnectAll();
+            await WaitUntilAsync(() => peers[0].ConnectionCount == 0 && peers[1].ConnectionCount == count - 2);
+            engines[0].ResizeShape(added.ShapeId, new(2, 3), new(80, 90));
+            var removed = engines[1].RemoveObject(added.ShapeId);
+            await peers[1].SendOperationAsync(removed, cancellationToken);
+            await peers[0].ConnectAsync("127.0.0.1", peers[1].Port, cancellationToken);
+            await WaitUntilAsync(() => engines.All(engine => engine.GetOperations().Length == count + 4));
+            foreach (var engine in engines)
+            {
+                Assert.Empty(engine.GetShapes());
+                AssertMatchingDocuments(engines[0], engine);
+            }
+        }
+        finally
+        {
+            foreach (var peer in peers)
+            {
+                await peer.DisposeAsync();
+            }
+        }
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
