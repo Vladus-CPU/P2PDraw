@@ -273,6 +273,26 @@ public sealed class SyncEngine
         }
     }
 
+    public ShapeResize ResizeShape(Guid shapeId, StrokePoint start, StrokePoint end)
+    {
+        if (shapeId == Guid.Empty || !double.IsFinite(start.X) || !double.IsFinite(start.Y)
+            || !double.IsFinite(end.X) || !double.IsFinite(end.Y))
+        {
+            throw new ArgumentException("Shape ID and finite geometry are required.");
+        }
+        lock (stateLock)
+        {
+            var shape = document.GetShapes().FirstOrDefault(shape => shape.ShapeId == shapeId);
+            if (shape is null)
+            {
+                throw new InvalidOperationException("Shape is missing or removed.");
+            }
+            var operation = new ShapeResize(NextStamp(), shapeId, start, end);
+            document.Apply(operation);
+            return operation;
+        }
+    }
+
     public ObjectRemove RemoveObject(Guid objectId)
     {
         if (objectId == Guid.Empty)

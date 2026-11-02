@@ -14,6 +14,7 @@ public sealed record Shape(Guid ShapeId, Guid PeerId, ShapeKind Kind, StrokePoin
 {
     public StrokePoint Offset { get; init; }
     public OperationStamp? MovedAt { get; init; }
+    public OperationStamp? ResizedAt { get; init; }
     public Guid LayerId { get; init; } = Layer.DefaultLayerId;
     public OperationStamp? LayerChangedAt { get; init; }
 }

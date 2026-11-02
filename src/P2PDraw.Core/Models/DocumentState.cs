@@ -109,6 +109,7 @@ public sealed class DocumentState
             StrokeAppend append => append.StrokeId,
             StrokeEnd end => end.StrokeId,
             ShapeAdd shape => shape.ShapeId,
+            ShapeResize resize => resize.ShapeId,
             ObjectMove move => move.ObjectId,
             ObjectLayer membership => membership.ObjectId,
             _ => throw new ArgumentException("Unknown drawing operation.")
@@ -142,6 +143,7 @@ public sealed class DocumentState
         var orderedOperations = changes.OrderBy(operation => operation.Stamp).ToArray();
         ObjectMove? latestMove = null;
         ObjectLayer? latestMembership = null;
+        ShapeResize? latestResize = null;
         foreach (var operation in orderedOperations)
         {
             if (operation is ObjectMove move)
@@ -152,12 +154,21 @@ public sealed class DocumentState
             {
                 latestMembership = membership;
             }
+            else if (operation is ShapeResize resize)
+            {
+                latestResize = resize;
+            }
         }
         // A colliding ID has one deterministic creation, even across different object kinds.
         foreach (var operation in orderedOperations)
         {
             if (operation is ShapeAdd shape)
             {
+                ShapeResize? resize = null;
+                if (latestResize is not null && latestResize.Stamp.CompareTo(shape.Stamp) > 0)
+                {
+                    resize = latestResize;
+                }
                 ObjectLayer? membership = null;
                 if (latestMembership is not null && latestMembership.Stamp.CompareTo(shape.Stamp) > 0)
                 {
@@ -165,11 +176,12 @@ public sealed class DocumentState
                 }
                 strokes.Remove(objectId);
                 pendingStrokes.Remove(objectId);
-                shapes[objectId] = new Shape(objectId, shape.Stamp.PeerId, shape.Kind, shape.Start, shape.End,
+                shapes[objectId] = new Shape(objectId, shape.Stamp.PeerId, shape.Kind, resize?.Start ?? shape.Start, resize?.End ?? shape.End,
                     shape.Color, shape.Width, shape.Stamp, shape.Fill)
                 {
                     Offset = latestMove?.Offset ?? default,
                     MovedAt = latestMove?.Stamp,
+                    ResizedAt = resize?.Stamp,
                     LayerId = membership?.LayerId ?? shape.LayerId,
                     LayerChangedAt = membership?.Stamp
                 };

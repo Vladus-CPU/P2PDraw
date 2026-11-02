@@ -30,6 +30,7 @@ public readonly record struct OperationStamp(Guid OperationId, Guid PeerId, long
 [JsonDerivedType(typeof(StrokeRemove), "strokeRemove")]
 [JsonDerivedType(typeof(CanvasClear), "canvasClear")]
 [JsonDerivedType(typeof(ShapeAdd), "shapeAdd")]
+[JsonDerivedType(typeof(ShapeResize), "shapeResize")]
 [JsonDerivedType(typeof(ObjectMove), "objectMove")]
 [JsonDerivedType(typeof(ObjectRemove), "objectRemove")]
 [JsonDerivedType(typeof(LayerAdd), "layerAdd")]
@@ -89,6 +90,11 @@ public abstract record Operation(OperationStamp Stamp)
             case ObjectMove move:
                 isValid = move.ObjectId != Guid.Empty && double.IsFinite(move.Offset.X) && double.IsFinite(move.Offset.Y);
                 break;
+            case ShapeResize resize:
+                isValid = resize.ShapeId != Guid.Empty
+                    && double.IsFinite(resize.Start.X) && double.IsFinite(resize.Start.Y)
+                    && double.IsFinite(resize.End.X) && double.IsFinite(resize.End.Y);
+                break;
             case ObjectRemove remove:
                 isValid = remove.ObjectId != Guid.Empty;
                 break;
@@ -146,4 +152,5 @@ public sealed record ShapeAdd(OperationStamp Stamp, Guid ShapeId, ShapeKind Kind
     public Guid LayerId { get; init; } = Layer.DefaultLayerId;
 }
 public sealed record ObjectMove(OperationStamp Stamp, Guid ObjectId, StrokePoint Offset) : Operation(Stamp);
+public sealed record ShapeResize(OperationStamp Stamp, Guid ShapeId, StrokePoint Start, StrokePoint End) : Operation(Stamp);
 public sealed record ObjectRemove(OperationStamp Stamp, Guid ObjectId) : Operation(Stamp);
