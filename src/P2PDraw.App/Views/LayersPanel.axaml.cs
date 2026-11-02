@@ -11,7 +11,11 @@ public partial class LayersPanel : UserControl
     public event Action? RemoveRequested;
     private LayersViewModel? Model => DataContext as LayersViewModel;
 
-    public LayersPanel() => InitializeComponent();
+    public LayersPanel()
+    {
+        InitializeComponent();
+        SizeChanged += (_, eventArgs) => LayerHint.IsVisible = eventArgs.NewSize.Height >= 300;
+    }
 
     private void OnAddClicked(object? sender, RoutedEventArgs eventArgs)
     {

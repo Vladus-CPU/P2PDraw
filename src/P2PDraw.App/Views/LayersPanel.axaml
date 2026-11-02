@@ -39,7 +39,7 @@
             <Setter Property="StrokeThickness" Value="1.8" />
         </Style>
     </UserControl.Styles>
-    <Grid RowDefinitions="Auto,*,Auto,Auto" RowSpacing="6">
+    <Grid RowDefinitions="Auto,*,Auto,Auto" RowSpacing="4">
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
             <TextBlock Text="Шари" FontWeight="SemiBold" VerticalAlignment="Center" />
             <Button x:Name="CloseLayersButton" Grid.Column="1" Classes="icon secondary" Click="OnCloseClicked"
@@ -107,6 +107,6 @@
                 <Path Classes="layer-icon" Data="M4,11 L4,13 M12,11 L12,13 M20,11 L20,13" />
             </Button>
         </Grid>
-        <TextBlock Grid.Row="3" Text="Видимість і блокування — лише на цьому пристрої." Classes="label" TextWrapping="Wrap" />
+        <TextBlock x:Name="LayerHint" Grid.Row="3" Text="Видимість і блокування — лише на цьому пристрої." Classes="label" TextWrapping="Wrap" />
     </Grid>
 </UserControl>

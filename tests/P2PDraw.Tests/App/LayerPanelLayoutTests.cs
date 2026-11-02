@@ -12,6 +12,8 @@ namespace P2PDraw.Tests.App;
 public partial class EditorTests
 {
     [Theory]
+    [InlineData(240, 160)]
+    [InlineData(260, 172)]
     [InlineData(240, 240)]
     [InlineData(280, 650)]
     public async Task LayerListScrollsWithoutCoveringPermanentActions(double width, double height)
@@ -50,12 +52,51 @@ public partial class EditorTests
                 window.UpdateLayout();
                 var lastRow = Assert.IsType<ListBoxItem>(list.ContainerFromIndex(list.ItemCount - 1));
                 var rowTop = lastRow.TranslatePoint(default, list)!.Value;
+                var rowBottom = lastRow.TranslatePoint(new Point(0, lastRow.Bounds.Height), list)!.Value;
                 Assert.InRange(rowTop.Y, 0, list.Bounds.Height);
+                Assert.True(rowBottom.Y <= list.Bounds.Height + 0.01);
                 foreach (var button in lastRow.GetVisualDescendants().OfType<Button>())
                 {
                     Assert.True(button.Bounds.Width >= 48);
                     Assert.True(button.Bounds.Height >= 48);
                 }
+            }
+            finally
+            {
+                window.Close();
+            }
+            return true;
+        }, TestContext.Current.CancellationToken);
+    }
+
+    [Theory]
+    [InlineData(640, 360)]
+    [InlineData(844, 390)]
+    public async Task LandscapeEditorKeepsCompleteLayerRowAndActions(double width, double height)
+    {
+        await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
+        await session.Dispatch(async () =>
+        {
+            await using var model = new MainWindowViewModel();
+            var view = new MainView { DataContext = model };
+            var window = new Window { Content = view, Width = width, Height = height };
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+                view.FindControl<Button>("LayersButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                window.UpdateLayout();
+                var panel = view.FindControl<LayersPanel>("LayerSide")!;
+                var list = panel.FindControl<ListBox>("LayerList")!;
+                var row = Assert.IsType<ListBoxItem>(list.ContainerFromIndex(0));
+                var rowBottom = row.TranslatePoint(new Point(0, row.Bounds.Height), list)!.Value;
+                Assert.True(panel.IsVisible);
+                Assert.InRange(rowBottom.Y, 1, list.Bounds.Height);
+                var more = panel.FindControl<Button>("MoreLayerButton")!;
+                var moreBottom = more.TranslatePoint(new Point(0, more.Bounds.Height), panel)!.Value;
+                Assert.True(more.Bounds.Width >= 48);
+                Assert.True(more.Bounds.Height >= 48);
+                Assert.InRange(moreBottom.Y, 1, panel.Bounds.Height);
             }
             finally
             {
