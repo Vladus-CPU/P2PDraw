@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using P2PDraw.App.Controls;
+using P2PDraw.App.Documents;
 using P2PDraw.App.ViewModels;
 
 namespace P2PDraw.App.Views;
@@ -40,6 +41,8 @@ public partial class MainView : UserControl
         {
             NetworkPanel.MaxHeight = eventArgs.NewSize.Height;
             LayerSide.MaxHeight = eventArgs.NewSize.Height;
+            FilesPanel.MaxHeight = eventArgs.NewSize.Height;
+            FileScroll.MaxHeight = Math.Max(0, eventArgs.NewSize.Height - 24);
             LayerSide.Width = isCompact == true ? Math.Min(300, eventArgs.NewSize.Width) : 240;
             NetworkScroll.MaxHeight = Math.Max(0, Math.Min(440, eventArgs.NewSize.Height - 96));
         };
@@ -101,6 +104,7 @@ public partial class MainView : UserControl
 
     private void OnSessionClicked(object? sender, RoutedEventArgs eventArgs)
     {
+        FilesPanel.IsVisible = false;
         NetworkPanel.IsVisible = !NetworkPanel.IsVisible;
         NetworkExpander.IsExpanded = NetworkPanel.IsVisible;
         if (isCompact == true && NetworkPanel.IsVisible)
@@ -111,8 +115,60 @@ public partial class MainView : UserControl
 
     private void OnLayersClicked(object? sender, RoutedEventArgs eventArgs)
     {
+        FilesPanel.IsVisible = false;
         LayerSide.IsVisible = !LayerSide.IsVisible;
         NetworkPanel.IsVisible = false;
+    }
+
+    private void OnFilesClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        FilesPanel.IsVisible = !FilesPanel.IsVisible;
+        NetworkPanel.IsVisible = false;
+        if (isCompact == true)
+        {
+            LayerSide.IsVisible = false;
+        }
+    }
+
+    private async void OnExportSvgClicked(object? sender, RoutedEventArgs eventArgs) => await ExportAsync(false);
+    private async void OnExportPngClicked(object? sender, RoutedEventArgs eventArgs) => await ExportAsync(true);
+
+    private async Task ExportAsync(bool png)
+    {
+        var model = Model;
+        var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
+        if (model is null || storage is null)
+        {
+            return;
+        }
+        var snapshot = model.GetSnapshot();
+        var included = VisibleContentOnly.IsChecked == true ? model.LayerEditor.VisibleLayerIds.ToHashSet() : null;
+        FilesPanel.IsVisible = false;
+        try
+        {
+            bool saved = png
+                ? await AppFilesService.SavePngAsync(storage, snapshot, included)
+                : await AppFilesService.SaveSvgAsync(storage, snapshot, included);
+            if (saved)
+            {
+                model.Session.Status = png ? "PNG збережено." : "SVG збережено.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (NotSupportedException)
+        {
+            model.Session.Status = "Системне збереження файлів недоступне.";
+        }
+        catch (ArgumentException)
+        {
+            model.Session.Status = "Перевірте координати й розмір документа. PNG підтримує до 4096 px на сторону.";
+        }
+        catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException || exception is InvalidOperationException)
+        {
+            model.Session.Status = "Не вдалося зберегти файл. Виберіть інше місце збереження.";
+        }
     }
 
     private void ConfirmLayerAction(bool remove)

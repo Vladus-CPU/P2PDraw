@@ -126,12 +126,24 @@
                     </ScrollViewer>
                 </Expander>
             </Border>
+            <Border x:Name="FilesPanel" Grid.ColumnSpan="2" IsVisible="False" Width="280" HorizontalAlignment="Left" VerticalAlignment="Top"
+                    Background="White" BorderBrush="#B8C7DA" BorderThickness="1" CornerRadius="10" Padding="12">
+                <ScrollViewer x:Name="FileScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Файл" FontWeight="SemiBold" />
+                        <CheckBox x:Name="VisibleContentOnly" Content="Експортувати лише видимі шари" IsChecked="True" />
+                        <Button x:Name="ExportSvgButton" Content="Експорт SVG" Click="OnExportSvgClicked" />
+                        <Button x:Name="ExportPngButton" Content="Експорт PNG" Click="OnExportPngClicked" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
         </Grid>
-        <Grid x:Name="FooterGrid" Grid.Row="3" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8" Margin="0,8,0,0">
+        <Grid x:Name="FooterGrid" Grid.Row="3" ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="8" Margin="0,8,0,0">
             <TextBlock Text="{Binding Status}" Classes="label" TextTrimming="CharacterEllipsis" MaxHeight="32" VerticalAlignment="Center" />
-            <Button x:Name="LayersButton" Grid.Column="1" Content="Шари" Click="OnLayersClicked" Padding="8,2" />
-            <TextBlock Grid.Column="2" Text="{Binding ObjectCount, StringFormat='Об’єктів: {0}'}" Classes="label" VerticalAlignment="Center" />
-            <Button x:Name="ResetZoomButton" Grid.Column="3" Content="100%" Click="OnResetViewClicked" ToolTip.Tip="Повернути масштаб 100% і центр полотна" MinHeight="32" Padding="8,2" />
+            <Button x:Name="FilesButton" Grid.Column="1" Content="Файл" Click="OnFilesClicked" Padding="8,2" />
+            <Button x:Name="LayersButton" Grid.Column="2" Content="Шари" Click="OnLayersClicked" Padding="8,2" />
+            <TextBlock Grid.Column="3" Text="{Binding ObjectCount, StringFormat='Об’єктів: {0}'}" Classes="label" VerticalAlignment="Center" />
+            <Button x:Name="ResetZoomButton" Grid.Column="4" Content="100%" Click="OnResetViewClicked" ToolTip.Tip="Повернути масштаб 100% і центр полотна" MinHeight="32" Padding="8,2" />
         </Grid>
         <Border x:Name="ConfirmationOverlay" Grid.RowSpan="4" Background="#66000000" IsVisible="False">
             <Border Background="White" CornerRadius="10" Padding="20" Margin="12" MaxWidth="400" HorizontalAlignment="Center" VerticalAlignment="Center">
