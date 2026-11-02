@@ -26,7 +26,10 @@ internal sealed class ObjectDuplicator(Func<SyncEngine> getEngine, Action<Operat
         publish(added);
         if (!stroke.Points.IsDefaultOrEmpty)
         {
-            publish(engine.AppendStroke(added.StrokeId, stroke.Points));
+            foreach (var append in engine.AppendStrokeBatches(added.StrokeId, stroke.Points))
+            {
+                publish(append);
+            }
         }
         publish(engine.EndStroke(added.StrokeId));
         var offset = new StrokePoint(stroke.Offset.X + displacement.X, stroke.Offset.Y + displacement.Y);

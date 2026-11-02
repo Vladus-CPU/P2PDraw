@@ -64,8 +64,10 @@ try
                         double y = ParseNumber(commandParts[i + 1]);
                         points.Add(new StrokePoint(x, y));
                     }
-                    var append = engine.AppendStroke(strokeId, points);
-                    await peer.SendOperationAsync(append, stop.Token);
+                    foreach (var append in engine.AppendStrokeBatches(strokeId, points))
+                    {
+                        await peer.SendOperationAsync(append, stop.Token);
+                    }
                     break;
                 case "end" when commandParts.Length == 2:
                     var end = engine.EndStroke(Guid.Parse(commandParts[1]));

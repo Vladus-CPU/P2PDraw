@@ -121,13 +121,17 @@ public class TcpPeerTests
         for (int index = 0; index < 5; index++)
         {
             var begin = firstEngine.BeginStroke(0, 2);
-            firstEngine.AppendStroke(begin.StrokeId, points);
+            firstEngine.AppendStrokeBatches(begin.StrokeId, points);
             firstEngine.EndStroke(begin.StrokeId);
         }
         var removed = firstEngine.BeginStroke(0, 1);
         firstEngine.RemoveStroke(removed.StrokeId);
         int snapshotSize = JsonSerializer.SerializeToUtf8Bytes<NetworkMessage>(new SnapshotMessage(firstEngine.CreateSnapshot())).Length;
         Assert.True(snapshotSize > MessageFraming.MaxMessageSize);
+        foreach (var operation in firstEngine.GetOperations())
+        {
+            Assert.True(MessageFraming.FitsInFrame<NetworkMessage>(new OperationMessage(operation)));
+        }
 
         await using var firstPeer = new TcpPeer(firstEngine);
         await using var secondPeer = new TcpPeer(secondEngine);

@@ -1,12 +1,50 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
+using P2PDraw.Core.Sync;
 using Xunit;
 
 namespace P2PDraw.Tests.Integration;
 
 public class SimulatorProcessTests
 {
+    [Fact]
+    public async Task LargeAppendUsesSeparateOperationsAcrossProcesses()
+    {
+        Guid sessionId = Guid.NewGuid();
+        await using var first = new SimulatorProcess(sessionId);
+        await using var second = new SimulatorProcess(sessionId);
+        await ConnectProcessesAsync(first, second);
+        var created = await first.CommandAsync("begin");
+        Guid strokeId = created.GetProperty("strokeId").GetGuid();
+        int pointCount = SyncEngine.MaxPointsPerAppend + 1;
+        var coordinates = new List<string>();
+        for (int index = 0; index < pointCount; index++)
+        {
+            coordinates.Add($"{index} {index + 1}");
+        }
+
+        await first.CommandAsync($"append {strokeId} {string.Join(' ', coordinates)}");
+        await first.CommandAsync($"end {strokeId}");
+        var states = await WaitForStateAsync(first, second, 4, 1);
+
+        Assert.Equal(states[0].GetRawText(), states[1].GetRawText());
+        var stroke = Assert.Single(states[0].GetProperty("strokes").EnumerateArray());
+        Assert.Equal(pointCount, stroke.GetProperty("Points").GetArrayLength());
+        Assert.True(stroke.GetProperty("IsComplete").GetBoolean());
+        var log = await first.CommandAsync("log");
+        int appendCount = 0;
+        foreach (var operation in log.GetProperty("operations").EnumerateArray())
+        {
+            if (operation.GetProperty("type").GetString() == "strokeAppend")
+            {
+                appendCount++;
+                Assert.InRange(operation.GetProperty("Points").GetArrayLength(), 1, SyncEngine.MaxPointsPerAppend);
+            }
+        }
+        Assert.Equal(2, appendCount);
+    }
+
     [Fact]
     public async Task RejectedSessionDoesNotStopSimulator()
     {
