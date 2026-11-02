@@ -167,13 +167,14 @@ public sealed class LayersViewModel : INotifyPropertyChanged
         {
             return;
         }
-        var ordered = getEngine().GetLayers();
-        int index = 0;
-        while (ordered[index].LayerId != activeLayerId)
-        {
-            index++;
-        }
+        var ordered = getEngine().GetLayers().ToArray();
+        int index = Array.FindIndex(ordered, layer => layer.LayerId == activeLayerId);
         int neighborIndex = index + (raise ? 1 : -1);
+        if (index < 0 || neighborIndex < 0 || neighborIndex >= ordered.Length)
+        {
+            Refresh();
+            return;
+        }
         int outerIndex = index + (raise ? 2 : -2);
         double position;
         if (outerIndex < 0 || outerIndex >= ordered.Length)
@@ -184,7 +185,31 @@ public sealed class LayersViewModel : INotifyPropertyChanged
         {
             position = ordered[neighborIndex].Position / 2 + ordered[outerIndex].Position / 2;
         }
-        Apply(engine => engine.SetLayerPosition(activeLayerId, position));
+        bool canPlace = double.IsFinite(position)
+            && (raise ? position > ordered[neighborIndex].Position : position < ordered[neighborIndex].Position);
+        if (outerIndex >= 0 && outerIndex < ordered.Length)
+        {
+            canPlace = canPlace && (raise ? position < ordered[outerIndex].Position : position > ordered[outerIndex].Position);
+        }
+        if (canPlace)
+        {
+            Apply(engine => engine.SetLayerPosition(activeLayerId, position));
+            return;
+        }
+
+        // Equal positions or rounding can leave no number between adjacent layers.
+        var neighbor = ordered[neighborIndex];
+        ordered[neighborIndex] = ordered[index];
+        ordered[index] = neighbor;
+        for (int rank = 0; rank < ordered.Length; rank++)
+        {
+            if (ordered[rank].Position != rank)
+            {
+                Guid layerId = ordered[rank].LayerId;
+                double normalizedPosition = rank;
+                Apply(engine => engine.SetLayerPosition(layerId, normalizedPosition));
+            }
+        }
     }
 
     public void ToggleVisibility(Guid layerId)

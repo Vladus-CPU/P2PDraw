@@ -107,7 +107,7 @@ public class LayerPeerTests
             string actual = JsonSerializer.Serialize(new
             {
                 snapshot.Strokes, snapshot.Shapes, snapshot.Layers, snapshot.LayerTombstones,
-                snapshot.Tombstones, snapshot.PendingStrokeIds, snapshot.Operations
+                snapshot.Tombstones, snapshot.PendingStrokeIds, snapshot.PendingLayerIds, snapshot.Operations
             });
             expected ??= actual;
             Assert.Equal(expected, actual);
