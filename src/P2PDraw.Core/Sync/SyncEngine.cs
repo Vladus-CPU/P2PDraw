@@ -51,6 +51,14 @@ public sealed class SyncEngine
         }
     }
 
+    public ImmutableArray<Shape> GetShapes()
+    {
+        lock (stateLock)
+        {
+            return document.GetShapes();
+        }
+    }
+
     public ImmutableArray<Guid> GetPendingStrokeIds()
     {
         lock (stateLock)
@@ -83,7 +91,10 @@ public sealed class SyncEngine
             var tombstones = document.GetTombstones();
             var operations = document.GetOperations();
             var pendingStrokeIds = document.GetPendingStrokeIds();
-            return new Snapshot(SessionId, clock.Value, strokes, tombstones, operations, pendingStrokeIds);
+            return new Snapshot(SessionId, clock.Value, strokes, tombstones, operations, pendingStrokeIds)
+            {
+                Shapes = document.GetShapes()
+            };
         }
     }
 
@@ -169,6 +180,21 @@ public sealed class SyncEngine
         }
     }
 
+    public ShapeAdd AddShape(ShapeKind kind, StrokePoint start, StrokePoint end, uint color, double width, uint? fill = null)
+    {
+        if (!Enum.IsDefined(kind) || !double.IsFinite(width) || width <= 0
+            || !double.IsFinite(start.X) || !double.IsFinite(start.Y) || !double.IsFinite(end.X) || !double.IsFinite(end.Y))
+        {
+            throw new ArgumentException("Shape geometry and width must be valid finite values.");
+        }
+        lock (stateLock)
+        {
+            var operation = new ShapeAdd(NextStamp(), Guid.NewGuid(), kind, start, end, color, width, fill);
+            document.Apply(operation);
+            return operation;
+        }
+    }
+
     public StrokeEnd EndStroke(Guid strokeId)
     {
         lock (stateLock)
@@ -199,7 +225,48 @@ public sealed class SyncEngine
     {
         lock (stateLock)
         {
-            var operation = new CanvasClear(NextStamp(), document.GetStrokes().Select(stroke => stroke.StrokeId).ToImmutableArray());
+            var knownIds = ImmutableArray.CreateBuilder<Guid>();
+            foreach (var stroke in document.GetStrokes())
+            {
+                knownIds.Add(stroke.StrokeId);
+            }
+            foreach (var shape in document.GetShapes())
+            {
+                knownIds.Add(shape.ShapeId);
+            }
+            var operation = new CanvasClear(NextStamp(), knownIds.ToImmutable());
+            document.Apply(operation);
+            return operation;
+        }
+    }
+
+    public ObjectMove MoveObject(Guid objectId, StrokePoint offset)
+    {
+        if (objectId == Guid.Empty || !double.IsFinite(offset.X) || !double.IsFinite(offset.Y))
+        {
+            throw new ArgumentException("Object ID and finite offset are required.");
+        }
+        lock (stateLock)
+        {
+            if (!document.ContainsObject(objectId))
+            {
+                throw new InvalidOperationException("Object is missing or removed.");
+            }
+            var operation = new ObjectMove(NextStamp(), objectId, offset);
+            document.Apply(operation);
+            return operation;
+        }
+    }
+
+    public ObjectRemove RemoveObject(Guid objectId)
+    {
+        if (objectId == Guid.Empty)
+        {
+            throw new ArgumentException("Object ID is required.");
+        }
+        lock (stateLock)
+        {
+            var operation = new ObjectRemove(NextStamp(), objectId);
             document.Apply(operation);
             return operation;
         }
