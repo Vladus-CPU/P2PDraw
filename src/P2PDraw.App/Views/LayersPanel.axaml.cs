@@ -13,14 +13,64 @@ public partial class LayersPanel : UserControl
 
     public LayersPanel() => InitializeComponent();
 
-    private void OnAddClicked(object? sender, RoutedEventArgs eventArgs) => Model?.AddLayer();
-    private void OnRenameClicked(object? sender, RoutedEventArgs eventArgs) => Model?.RenameLayer();
+    private void OnAddClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        Model?.AddLayer();
+        CloseMenu();
+    }
+
+    private void OnRenameClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        Model?.RenameLayer();
+        CloseMenu();
+    }
+
     private void OnRaiseClicked(object? sender, RoutedEventArgs eventArgs) => Model?.MoveLayer(true);
     private void OnLowerClicked(object? sender, RoutedEventArgs eventArgs) => Model?.MoveLayer(false);
-    private void OnMoveObjectClicked(object? sender, RoutedEventArgs eventArgs) => Model?.MoveSelectedObject();
-    private void OnCloseClicked(object? sender, RoutedEventArgs eventArgs) => CloseRequested?.Invoke();
-    private void OnClearClicked(object? sender, RoutedEventArgs eventArgs) => ClearRequested?.Invoke();
-    private void OnRemoveClicked(object? sender, RoutedEventArgs eventArgs) => RemoveRequested?.Invoke();
+
+    private void OnMoveObjectClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        Model?.MoveSelectedObject();
+        CloseMenu();
+    }
+
+    private void OnCloseClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        CloseMenu();
+        CloseRequested?.Invoke();
+    }
+
+    private void OnClearClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        CloseMenu();
+        ClearRequested?.Invoke();
+    }
+
+    private void OnRemoveClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        CloseMenu();
+        RemoveRequested?.Invoke();
+    }
+
+    private void OnMoreClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        bool showActions = !LayerActionsScroll.IsVisible;
+        LayerActionsScroll.IsVisible = showActions;
+        LayerList.IsVisible = !showActions;
+        MoreLayerButton.Classes.Set("selected", showActions);
+    }
+
+    public bool CloseMenu()
+    {
+        if (!LayerActionsScroll.IsVisible)
+        {
+            return false;
+        }
+        LayerActionsScroll.IsVisible = false;
+        LayerList.IsVisible = true;
+        MoreLayerButton.Classes.Remove("selected");
+        return true;
+    }
 
     private void OnVisibilityClicked(object? sender, RoutedEventArgs eventArgs)
     {

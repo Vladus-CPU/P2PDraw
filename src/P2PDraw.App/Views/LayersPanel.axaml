@@ -1,37 +1,112 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:P2PDraw.App.ViewModels" x:Class="P2PDraw.App.Views.LayersPanel" x:DataType="vm:LayersViewModel">
-    <Border Background="White" BorderBrush="#CCD5E1" BorderThickness="1" CornerRadius="8" Padding="8">
-        <Grid RowDefinitions="Auto,*" RowSpacing="6">
-            <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Text="Шари" FontWeight="SemiBold" VerticalAlignment="Center" />
-                <Button Grid.Column="1" Content="×" Click="OnCloseClicked" ToolTip.Tip="Згорнути шари" Padding="8,2" />
-            </Grid>
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Spacing="6">
-                    <ListBox x:Name="LayerList" ItemsSource="{Binding Layers}" SelectedItem="{Binding SelectedLayer, Mode=TwoWay}" MinHeight="100" MaxHeight="260">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:LayerEntry">
-                                <Grid ColumnDefinitions="*,40,40">
-                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                    <Button Grid.Column="1" Content="{Binding VisibilityIcon}" Tag="{Binding LayerId}" Click="OnVisibilityClicked" Padding="4" ToolTip.Tip="Показати або приховати локально" />
-                                    <Button Grid.Column="2" Content="{Binding LockIcon}" Tag="{Binding LayerId}" Click="OnLockClicked" Padding="4" ToolTip.Tip="Блокування редагування на цьому пристрої" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                    <TextBox x:Name="LayerNameBox" Text="{Binding LayerName, Mode=TwoWay}" PlaceholderText="Назва шару" MaxLength="100" IsEnabled="{Binding HasActiveLayer}" />
-                    <Button x:Name="RenameLayerButton" Content="Перейменувати" Click="OnRenameClicked" IsEnabled="{Binding HasActiveLayer}" />
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
-                        <Button x:Name="AddLayerButton" Content="Новий шар" Click="OnAddClicked" />
-                        <Button Grid.Column="1" Content="↑" Click="OnRaiseClicked" IsEnabled="{Binding CanRaise}" ToolTip.Tip="Шар вище" />
-                        <Button Grid.Column="2" Content="↓" Click="OnLowerClicked" IsEnabled="{Binding CanLower}" ToolTip.Tip="Шар нижче" />
-                    </Grid>
-                    <Button x:Name="MoveToLayerButton" Content="Перенести об'єкт сюди" Click="OnMoveObjectClicked" IsEnabled="{Binding CanMoveObject}" />
-                    <Button x:Name="ClearLayerButton" Content="Очистити шар" Click="OnClearClicked" IsEnabled="{Binding HasActiveLayer}" />
-                    <Button x:Name="RemoveLayerButton" Content="Видалити шар" Click="OnRemoveClicked" IsEnabled="{Binding HasActiveLayer}" Foreground="#A52D36" />
-                    <TextBlock Text="Видимість і блокування діють лише на цьому пристрої." Classes="label" TextWrapping="Wrap" />
-                </StackPanel>
-            </ScrollViewer>
+             xmlns:vm="using:P2PDraw.App.ViewModels" x:Class="P2PDraw.App.Views.LayersPanel" x:DataType="vm:LayersViewModel"
+             Classes="layers-panel">
+    <UserControl.Styles>
+        <Style Selector="Button.layer-toggle">
+            <Setter Property="Width" Value="48" />
+            <Setter Property="MinHeight" Value="48" />
+            <Setter Property="Padding" Value="12" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#52637A" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.layer-toggle.off">
+            <Setter Property="Foreground" Value="#A34B27" />
+        </Style>
+        <Style Selector="ListBox#LayerList ListBoxItem">
+            <Setter Property="Padding" Value="4,0,0,0" />
+            <Setter Property="Margin" Value="0,2" />
+            <Setter Property="MinHeight" Value="48" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style Selector="ListBox#LayerList ListBoxItem:selected">
+            <Setter Property="Background" Value="#E7F0FD" />
+            <Setter Property="BorderBrush" Value="#3D78BE" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.icon">
+            <Setter Property="MinWidth" Value="48" />
+            <Setter Property="MinHeight" Value="48" />
+        </Style>
+        <Style Selector="Path.layer-icon">
+            <Setter Property="Width" Value="22" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="Stretch" Value="Uniform" />
+            <Setter Property="Stroke" Value="{Binding $parent[Button].Foreground}" />
+            <Setter Property="StrokeThickness" Value="1.8" />
+        </Style>
+    </UserControl.Styles>
+    <Grid RowDefinitions="Auto,*,Auto,Auto" RowSpacing="6">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
+            <TextBlock Text="Шари" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <Button x:Name="CloseLayersButton" Grid.Column="1" Classes="icon secondary" Click="OnCloseClicked"
+                    ToolTip.Tip="Закрити панель шарів" AutomationProperties.Name="Закрити панель шарів">
+                <Path Classes="layer-icon" Data="M4,4 L20,20 M20,4 L4,20" />
+            </Button>
         </Grid>
-    </Border>
+        <ListBox x:Name="LayerList" Grid.Row="1" ItemsSource="{Binding Layers}" SelectedItem="{Binding SelectedLayer, Mode=TwoWay}"
+                 Background="Transparent" BorderThickness="0" Padding="0" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Шари документа">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:LayerEntry">
+                    <Grid ColumnDefinitions="*,48,48">
+                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                   ToolTip.Tip="{Binding Name}" Margin="4,0" />
+                        <Button Grid.Column="1" Classes="layer-toggle" Classes.off="{Binding !IsVisible}" Tag="{Binding LayerId}"
+                                Click="OnVisibilityClicked" ToolTip.Tip="Показати або приховати локально"
+                                AutomationProperties.Name="{Binding Name, StringFormat='Видимість шару {0}'}">
+                            <Grid Width="22" Height="22">
+                                <Path Classes="layer-icon" Data="M1,12 C6,3 18,3 23,12 C18,21 6,21 1,12 Z M15,12 A3,3 0 1 1 9,12 A3,3 0 1 1 15,12" />
+                                <Path Classes="layer-icon" Data="M2,2 L22,22" IsVisible="{Binding !IsVisible}" />
+                            </Grid>
+                        </Button>
+                        <Button Grid.Column="2" Classes="layer-toggle" Classes.off="{Binding IsLocked}" Tag="{Binding LayerId}"
+                                Click="OnLockClicked" ToolTip.Tip="Блокування редагування на цьому пристрої"
+                                AutomationProperties.Name="{Binding Name, StringFormat='Блокування шару {0}'}">
+                            <Grid Width="22" Height="22">
+                                <Path Classes="layer-icon" Data="M6,10 L18,10 18,22 6,22 Z M8,10 L8,6 C8,0 16,0 16,6 L16,10 M12,14 L12,18" IsVisible="{Binding IsLocked}" />
+                                <Path Classes="layer-icon" Data="M6,10 L18,10 18,22 6,22 Z M8,10 L8,6 C8,0 16,0 16,6 M12,14 L12,18" IsVisible="{Binding !IsLocked}" />
+                            </Grid>
+                        </Button>
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+        <ScrollViewer x:Name="LayerActionsScroll" Grid.Row="1" IsVisible="False" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="6">
+                <TextBlock Text="Назва активного шару" Classes="label" />
+                <TextBox x:Name="LayerNameBox" Classes="field" Text="{Binding LayerName, Mode=TwoWay}" PlaceholderText="Назва шару"
+                         AutomationProperties.Name="Назва шару" MaxLength="100" IsEnabled="{Binding HasActiveLayer}" />
+                <Button x:Name="RenameLayerButton" Classes="secondary" Content="Перейменувати" Click="OnRenameClicked" IsEnabled="{Binding HasActiveLayer}" HorizontalAlignment="Stretch" />
+                <Button x:Name="MoveToLayerButton" Classes="secondary" Click="OnMoveObjectClicked" IsEnabled="{Binding CanMoveObject}" HorizontalAlignment="Stretch">
+                    <TextBlock Text="Перенести об'єкт сюди" TextWrapping="Wrap" TextAlignment="Center" />
+                </Button>
+                <Border Height="1" Background="#DCE3EC" Margin="0,4" />
+                <Button x:Name="ClearLayerButton" Classes="danger" Content="Очистити шар" Click="OnClearClicked" IsEnabled="{Binding HasActiveLayer}" HorizontalAlignment="Stretch" />
+                <Button x:Name="RemoveLayerButton" Classes="danger" Content="Видалити шар" Click="OnRemoveClicked" IsEnabled="{Binding HasActiveLayer}" HorizontalAlignment="Stretch" />
+            </StackPanel>
+        </ScrollViewer>
+        <Grid x:Name="LayerToolbar" Grid.Row="2" ColumnDefinitions="*,*,*,*" ColumnSpacing="4">
+            <Button x:Name="AddLayerButton" Classes="icon secondary" Click="OnAddClicked"
+                    ToolTip.Tip="Новий шар" AutomationProperties.Name="Новий шар">
+                <Path Classes="layer-icon" Data="M12,3 L12,21 M3,12 L21,12" />
+            </Button>
+            <Button x:Name="RaiseLayerButton" Grid.Column="1" Classes="icon secondary" Click="OnRaiseClicked" IsEnabled="{Binding CanRaise}"
+                    ToolTip.Tip="Шар вище" AutomationProperties.Name="Шар вище">
+                <Path Classes="layer-icon" Data="M5,12 L12,5 19,12 M12,5 L12,21" />
+            </Button>
+            <Button x:Name="LowerLayerButton" Grid.Column="2" Classes="icon secondary" Click="OnLowerClicked" IsEnabled="{Binding CanLower}"
+                    ToolTip.Tip="Шар нижче" AutomationProperties.Name="Шар нижче">
+                <Path Classes="layer-icon" Data="M5,12 L12,19 19,12 M12,3 L12,19" />
+            </Button>
+            <Button x:Name="MoreLayerButton" Grid.Column="3" Classes="icon secondary" Click="OnMoreClicked"
+                    ToolTip.Tip="Дії над шаром" AutomationProperties.Name="Дії над шаром">
+                <Path Classes="layer-icon" Data="M4,11 L4,13 M12,11 L12,13 M20,11 L20,13" />
+            </Button>
+        </Grid>
+        <TextBlock Grid.Row="3" Text="Видимість і блокування — лише на цьому пристрої." Classes="label" TextWrapping="Wrap" />
+    </Grid>
 </UserControl>
