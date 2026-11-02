@@ -7,10 +7,10 @@ using P2PDraw.Networking.Transport;
 
 namespace P2PDraw.Networking.Discovery;
 
-public sealed record DiscoveryAnnouncement(Guid PeerId, Guid SessionId, int TcpPort, int ProtocolVersion);
-public sealed record DiscoveredPeer(Guid PeerId, string Address, int TcpPort, DateTimeOffset LastSeen)
+public sealed record DiscoveryAnnouncement(Guid PeerId, Guid SessionId, int TcpPort, int ProtocolVersion, string SessionName = "");
+public sealed record DiscoveredPeer(Guid PeerId, string Address, int TcpPort, DateTimeOffset LastSeen, Guid SessionId = default, string SessionName = "")
 {
-    public string DisplayName => $"{Address}:{TcpPort} · {PeerId.ToString()[..8]}";
+    public string DisplayName => string.IsNullOrWhiteSpace(SessionName) ? $"Сесія {SessionId.ToString()[..8]}" : SessionName;
 }
 
 public sealed class PeerDiscovery : IAsyncDisposable
@@ -20,6 +20,7 @@ public sealed class PeerDiscovery : IAsyncDisposable
     private readonly object stateLock = new();
     private readonly Guid peerId;
     private readonly Guid sessionId;
+    private readonly bool includeOtherSessions;
     private readonly CancellationTokenSource lifetime = new();
     private readonly Dictionary<Guid, DiscoveredPeer> peers = [];
     private readonly List<IPAddress> interfaces = [];
@@ -31,7 +32,7 @@ public sealed class PeerDiscovery : IAsyncDisposable
     public event Action<string>? Error;
     public int Port => (client?.Client.LocalEndPoint as IPEndPoint)?.Port ?? 0;
 
-    public PeerDiscovery(Guid peerId, Guid sessionId)
+    public PeerDiscovery(Guid peerId, Guid sessionId, bool includeOtherSessions = false)
     {
         if (peerId == Guid.Empty || sessionId == Guid.Empty)
         {
@@ -39,6 +40,7 @@ public sealed class PeerDiscovery : IAsyncDisposable
         }
         this.peerId = peerId;
         this.sessionId = sessionId;
+        this.includeOtherSessions = includeOtherSessions;
     }
 
     public ImmutableArray<DiscoveredPeer> GetPeers()
@@ -51,14 +53,24 @@ public sealed class PeerDiscovery : IAsyncDisposable
 
     public void Start(int tcpPort, int udpPort = DefaultPort, IReadOnlyList<IPAddress>? localAddresses = null)
     {
+        if (tcpPort < 1 || tcpPort > 65535)
+        {
+            throw new ArgumentOutOfRangeException(nameof(tcpPort));
+        }
+        StartCore(tcpPort, udpPort, localAddresses);
+    }
+
+    public void StartBrowsing(int udpPort = DefaultPort, IReadOnlyList<IPAddress>? localAddresses = null)
+    {
+        StartCore(0, udpPort, localAddresses);
+    }
+
+    private void StartCore(int tcpPort, int udpPort, IReadOnlyList<IPAddress>? localAddresses)
+    {
         ObjectDisposedException.ThrowIf(lifetime.IsCancellationRequested, this);
         if (client is not null)
         {
             throw new InvalidOperationException("Discovery already started.");
-        }
-        if (tcpPort < 1 || tcpPort > 65535)
-        {
-            throw new ArgumentOutOfRangeException(nameof(tcpPort));
         }
         var addresses = localAddresses ?? GetLocalAddresses();
         var socket = new UdpClient(AddressFamily.InterNetwork);
@@ -68,7 +80,7 @@ public sealed class PeerDiscovery : IAsyncDisposable
             socket.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             socket.Client.Bind(new IPEndPoint(IPAddress.Any, udpPort));
             socket.MulticastLoopback = true;
-            socket.Ttl = 1;
+            socket.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 1);
             foreach (var address in addresses.Distinct())
             {
                 try
@@ -142,13 +154,20 @@ public sealed class PeerDiscovery : IAsyncDisposable
                     continue;
                 }
                 if (announcement is null || announcement.PeerId == Guid.Empty || announcement.PeerId == peerId
-                    || announcement.SessionId != sessionId || announcement.ProtocolVersion != TcpPeer.ProtocolVersion
+                    || announcement.SessionId == Guid.Empty || (!includeOtherSessions && announcement.SessionId != sessionId)
+                    || announcement.ProtocolVersion != TcpPeer.ProtocolVersion
                     || announcement.TcpPort < 1 || announcement.TcpPort > 65535)
                 {
                     continue;
                 }
                 // Use the datagram source instead of trusting an advertised IP address.
-                var found = new DiscoveredPeer(announcement.PeerId, datagram.RemoteEndPoint.Address.ToString(), announcement.TcpPort, DateTimeOffset.UtcNow);
+                string name = announcement.SessionName ?? "";
+                if (name.Length > 64 || name.Any(char.IsControl))
+                {
+                    continue;
+                }
+                var found = new DiscoveredPeer(announcement.PeerId, datagram.RemoteEndPoint.Address.ToString(), announcement.TcpPort,
+                    DateTimeOffset.UtcNow, announcement.SessionId, name);
                 lock (stateLock)
                 {
                     peers[found.PeerId] = found;
@@ -167,7 +186,7 @@ public sealed class PeerDiscovery : IAsyncDisposable
 
     private async Task AnnounceAsync(int tcpPort)
     {
-        var announcement = new DiscoveryAnnouncement(peerId, sessionId, tcpPort, TcpPeer.ProtocolVersion);
+        var announcement = new DiscoveryAnnouncement(peerId, sessionId, tcpPort, TcpPeer.ProtocolVersion, $"Сесія {sessionId.ToString()[..8]}");
         byte[] payload = JsonSerializer.SerializeToUtf8Bytes(announcement);
         var destination = new IPEndPoint(MulticastAddress, Port);
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
@@ -177,6 +196,10 @@ public sealed class PeerDiscovery : IAsyncDisposable
             {
                 foreach (var address in interfaces)
                 {
+                    if (tcpPort == 0)
+                    {
+                        break;
+                    }
                     try
                     {
                         client!.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, address.GetAddressBytes());
