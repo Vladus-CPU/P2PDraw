@@ -4,5 +4,6 @@
              RequestedThemeVariant="Light">
     <Application.Styles>
         <FluentTheme />
+        <StyleInclude Source="avares://P2PDraw.App/Styles/EditorStyles.axaml" />
     </Application.Styles>
 </Application>

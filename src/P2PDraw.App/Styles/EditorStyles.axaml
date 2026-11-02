@@ -1,0 +1,88 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Styles.Resources>
+        <x:Double x:Key="EditorControlSize">44</x:Double>
+    </Styles.Resources>
+    <Style Selector="TextBlock.label">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="#64748B" />
+    </Style>
+    <Style Selector="Button">
+        <Setter Property="MinHeight" Value="{DynamicResource EditorControlSize}" />
+        <Setter Property="Padding" Value="12,6" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Background" Value="#F1F5F9" />
+        <Setter Property="Foreground" Value="#26364A" />
+        <Setter Property="BorderBrush" Value="#CBD5E1" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Button.tool, Button.icon">
+        <Setter Property="Width" Value="{DynamicResource EditorControlSize}" />
+        <Setter Property="MinWidth" Value="{DynamicResource EditorControlSize}" />
+        <Setter Property="Padding" Value="8" />
+    </Style>
+    <Style Selector="Button.secondary">
+        <Setter Property="Background" Value="White" />
+    </Style>
+    <Style Selector="Button.primary">
+        <Setter Property="Background" Value="#2463AA" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="BorderBrush" Value="#2463AA" />
+    </Style>
+    <Style Selector="Button.danger">
+        <Setter Property="Background" Value="#FFF5F5" />
+        <Setter Property="Foreground" Value="#A32632" />
+        <Setter Property="BorderBrush" Value="#E8BBC0" />
+    </Style>
+    <Style Selector="Button.selected">
+        <Setter Property="Background" Value="#DCEBFC" />
+        <Setter Property="Foreground" Value="#155493" />
+        <Setter Property="BorderBrush" Value="#2463AA" />
+        <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#E2EAF4" />
+        <Setter Property="BorderBrush" Value="#7398BF" />
+    </Style>
+    <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#C8DCF3" />
+    </Style>
+    <Style Selector="Button:focus-visible">
+        <Setter Property="BorderBrush" Value="#155493" />
+        <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <Style Selector="Button:disabled">
+        <Setter Property="Opacity" Value="0.45" />
+    </Style>
+    <Style Selector="TextBox, ComboBox">
+        <Setter Property="MinHeight" Value="{DynamicResource EditorControlSize}" />
+        <Setter Property="Padding" Value="10,6" />
+        <Setter Property="CornerRadius" Value="6" />
+    </Style>
+    <Style Selector="TextBox">
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="ComboBox">
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="CheckBox">
+        <Setter Property="MinHeight" Value="{DynamicResource EditorControlSize}" />
+        <Setter Property="Padding" Value="4" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Slider">
+        <Setter Property="MinHeight" Value="{DynamicResource EditorControlSize}" />
+    </Style>
+    <Style Selector="ComboBoxItem, ListBoxItem">
+        <Setter Property="MinHeight" Value="{DynamicResource EditorControlSize}" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Path.icon">
+        <Setter Property="Width" Value="20" />
+        <Setter Property="Height" Value="20" />
+        <Setter Property="Stretch" Value="Uniform" />
+        <Setter Property="StrokeThickness" Value="1.8" />
+        <Setter Property="Stroke" Value="{Binding $parent[Button].Foreground}" />
+    </Style>
+</Styles>
