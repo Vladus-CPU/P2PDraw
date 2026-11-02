@@ -201,7 +201,7 @@
             <TextBlock x:Name="ObjectCountText" Grid.Column="1" Text="{Binding ObjectCount, StringFormat='{}{0} об.'}" Classes="label" VerticalAlignment="Center" ToolTip.Tip="Кількість об'єктів" />
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                 <Button x:Name="ZoomOutButton" Classes="icon secondary" Click="OnZoomOutClicked" ToolTip.Tip="Зменшити масштаб" AutomationProperties.Name="Зменшити масштаб">
-                    <Path Classes="icon" Data="M4,12 L20,12" />
+                    <Rectangle Width="18" Height="2" Fill="{Binding $parent[Button].Foreground}" />
                 </Button>
                 <Button x:Name="ResetZoomButton" Content="100%" Classes="secondary" MinWidth="60" Click="OnResetViewClicked" ToolTip.Tip="Повернути масштаб 100% і центр полотна" AutomationProperties.Name="Скинути масштаб" />
                 <Button x:Name="ZoomInButton" Classes="icon secondary" Click="OnZoomInClicked" ToolTip.Tip="Збільшити масштаб" AutomationProperties.Name="Збільшити масштаб">
