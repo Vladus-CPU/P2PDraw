@@ -289,9 +289,9 @@ public partial class MainView : UserControl
         catch (OperationCanceledException)
         {
         }
-        catch (ArgumentException)
+        catch (ArgumentException exception)
         {
-            model.Session.Status = "Стан файлу некоректний. Відкриття скасовано.";
+            model.Session.Status = exception.Message;
         }
         finally
         {

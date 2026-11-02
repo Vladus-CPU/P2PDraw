@@ -9,6 +9,7 @@ using Avalonia.Threading;
 using P2PDraw.Core.Operations;
 using P2PDraw.Core.Sync;
 using P2PDraw.Networking.Discovery;
+using P2PDraw.Networking.Protocol;
 using P2PDraw.Networking.Transport;
 
 namespace P2PDraw.App.ViewModels;
@@ -290,6 +291,13 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             var restored = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
             restored.MergeSnapshot(snapshot with { SessionId = restored.SessionId });
+            foreach (var operation in restored.GetOperations())
+            {
+                if (!MessageFraming.FitsInFrame<NetworkMessage>(new OperationMessage(operation)))
+                {
+                    throw new ArgumentException("Операція у файлі перевищує 4 МіБ і не може бути синхронізована. Відкриття скасовано.");
+                }
+            }
             return restored;
         }, lifetime.Token);
         if (isDisposed || isBusy)
