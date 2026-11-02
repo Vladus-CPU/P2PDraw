@@ -5,6 +5,6 @@
         x:Class="P2PDraw.App.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="{Binding SessionTitle, StringFormat='P2PDraw · {0}'}"
-        Width="1180" Height="760" MinWidth="1000" MinHeight="720" Background="#EEF1F5">
+        Width="1180" Height="760" MinWidth="320" MinHeight="360" Background="#EEF1F5">
     <views:MainView x:Name="EditorView" />
 </Window>

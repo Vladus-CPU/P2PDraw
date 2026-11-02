@@ -175,22 +175,32 @@ public partial class EditorTests
             await using var model = new MainWindowViewModel();
             var view = new MainView { DataContext = model };
             var window = new Window { Content = view, Width = width, Height = height };
+            var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            view.Loaded += (_, _) => loaded.TrySetResult();
             window.Show();
             window.UpdateLayout();
-            var expander = view.FindControl<Expander>("NetworkExpander")!;
+            await loaded.Task.WaitAsync(TestContext.Current.CancellationToken);
             var canvas = view.FindControl<DrawingCanvas>("DrawingSurface")!;
-            Assert.False(expander.IsExpanded);
+            Assert.False(view.FindControl<Border>("NetworkPanel")!.IsVisible);
             Assert.True(canvas.Bounds.Width >= width - 40);
             Assert.True(canvas.Bounds.Height > height * 0.35,
                 $"Canvas: {canvas.Bounds}; header: {view.FindControl<Grid>("HeaderGrid")!.Bounds}; tools: {view.FindControl<Border>("BrushPanel")!.Bounds}; footer: {view.FindControl<Grid>("FooterGrid")!.Bounds}; window: {window.Bounds}");
+
+            view.FindControl<Button>("FilesButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            window.UpdateLayout();
             var clear = view.FindControl<Button>("ClearButton")!;
+            clear.BringIntoView();
+            window.UpdateLayout();
             Point clearPosition = clear.TranslatePoint(new Point(clear.Bounds.Width, clear.Bounds.Height), window)!.Value;
             Assert.InRange(clearPosition.X, 0, window.Bounds.Width);
             Assert.InRange(clearPosition.Y, 0, window.Bounds.Height);
 
-            expander.IsExpanded = true;
+            view.FindControl<Button>("SessionButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             window.UpdateLayout();
-            Assert.True(view.FindControl<ScrollViewer>("NetworkScroll")!.Bounds.Height <= 260);
+            var panel = view.FindControl<Border>("SidePanel")!;
+            var networkScroll = view.FindControl<ScrollViewer>("NetworkScroll")!;
+            Assert.True(networkScroll.Bounds.Height > 0);
+            Assert.True(networkScroll.Bounds.Height <= panel.Bounds.Height);
             Assert.NotNull(view.FindControl<TextBox>("SessionIdBox"));
             Assert.NotNull(view.FindControl<TextBox>("RemoteAddressBox"));
             window.Close();
@@ -316,8 +326,12 @@ public partial class EditorTests
             window.UpdateLayout();
             var disconnectButton = window.Editor.FindControl<Button>("DisconnectButton")!;
             var surface = window.Editor.FindControl<DrawingCanvas>("DrawingSurface")!;
+            disconnectButton.BringIntoView();
+            window.UpdateLayout();
+            Point buttonTop = disconnectButton.TranslatePoint(default, window)!.Value;
             Point buttonBottom = disconnectButton.TranslatePoint(new Point(0, disconnectButton.Bounds.Height), window)!.Value;
             Point canvasBottom = surface.TranslatePoint(new Point(0, surface.Bounds.Height), window)!.Value;
+            Assert.True(buttonTop.Y >= surface.TranslatePoint(default, window)!.Value.Y);
             Assert.True(buttonBottom.Y <= canvasBottom.Y);
             await model.DisposeAsync();
             window.Close();

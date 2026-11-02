@@ -22,8 +22,11 @@ public partial class EditorTests
             await using var model = new MainWindowViewModel();
             var view = new MainView { DataContext = model };
             var window = new Window { Content = view, Width = width, Height = height };
+            var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            view.Loaded += (_, _) => loaded.TrySetResult();
             window.Show();
             window.UpdateLayout();
+            await loaded.Task.WaitAsync(TestContext.Current.CancellationToken);
             var canvas = view.FindControl<DrawingCanvas>("DrawingSurface")!;
             var panel = view.FindControl<Border>("NetworkPanel")!;
             var sessionButton = view.FindControl<Button>("SessionButton")!;
@@ -34,6 +37,7 @@ public partial class EditorTests
             sessionButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             window.UpdateLayout();
             Assert.True(panel.IsVisible);
+            Assert.False(view.FindControl<LayersPanel>("LayerSide")!.IsVisible);
             Assert.True(panel.Bounds.Width <= view.Bounds.Width);
             Assert.True(panel.Bounds.Height <= canvas.Bounds.Height + 2);
             sessionButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

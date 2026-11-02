@@ -3,6 +3,9 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Layout;
+using System.ComponentModel;
+using Avalonia.VisualTree;
 using P2PDraw.App.Controls;
 using P2PDraw.App.Documents;
 using P2PDraw.App.ViewModels;
@@ -13,12 +16,17 @@ namespace P2PDraw.App.Views;
 
 public partial class MainView : UserControl
 {
-    private bool? isCompact;
+    private bool? wideLayout;
+    private string? activePanel = "Шари";
+    private TopLevel? topLevel;
+    private MainWindowViewModel? observedModel;
     private Func<Task>? confirmedAction;
+    private bool restoreControlsAfterLayout;
 
     public MainView()
     {
         InitializeComponent();
+        UpdateToolProperties();
         DrawingSurface.StrokeStarted += point => Model?.BeginStroke(point);
         DrawingSurface.StrokeContinued += point => Model?.AppendStroke(point);
         DrawingSurface.StrokeFinished += () => Model?.EndStroke();
@@ -43,9 +51,11 @@ public partial class MainView : UserControl
                     _ => "штрих"
                 };
                 SelectionInfo.Text = selected is null ? "" : $"Вибрано: {name}";
+                SelectionInfo.IsVisible = selected is not null && Bounds.Width >= 850;
             }
+            UpdateToolProperties();
         };
-        LayerSide.CloseRequested += () => LayerSide.IsVisible = false;
+        LayerSide.CloseRequested += ClosePanel;
         LayerSide.ClearRequested += () => ConfirmLayerAction(false);
         LayerSide.RemoveRequested += () => ConfirmLayerAction(true);
         SizeChanged += OnSizeChanged;
@@ -57,44 +67,155 @@ public partial class MainView : UserControl
             SaveProjectButton.IsEnabled = storage?.CanSave == true;
             OpenProjectButton.IsEnabled = storage?.CanOpen == true;
         };
-        BodyGrid.SizeChanged += (_, eventArgs) =>
-        {
-            NetworkPanel.MaxHeight = eventArgs.NewSize.Height;
-            LayerSide.MaxHeight = eventArgs.NewSize.Height;
-            FilesPanel.MaxHeight = eventArgs.NewSize.Height;
-            FileScroll.MaxHeight = Math.Max(0, eventArgs.NewSize.Height - 24);
-            LayerSide.Width = isCompact == true ? Math.Min(300, eventArgs.NewSize.Width) : 240;
-            NetworkScroll.MaxHeight = Math.Max(0, Math.Min(440, eventArgs.NewSize.Height - 96));
-        };
+        BodyGrid.SizeChanged += (_, _) => UpdatePanelLayout();
+        LayoutUpdated += OnLayoutUpdated;
     }
 
     private void OnSizeChanged(object? sender, SizeChangedEventArgs eventArgs)
     {
-        bool shortScreen = eventArgs.NewSize.Height < 600;
-        bool compact = eventArgs.NewSize.Width < 1000 || shortScreen;
-        int margin = compact ? 8 : 16;
-        if (shortScreen)
+        UpdateLayoutMode(eventArgs.NewSize);
+    }
+
+    private void UpdateLayoutMode(Size size)
+    {
+        bool shortScreen = size.Height < 600;
+        bool wide = size.Width >= 1000 && !shortScreen;
+        bool narrow = size.Width < 600;
+        bool inlineProperties = size.Width >= 1100 && !shortScreen && FontSize <= 16;
+        RootGrid.Margin = new Thickness(shortScreen ? 4 : 8);
+        RootGrid.RowSpacing = shortScreen ? 2 : 6;
+        BrushPanel.Padding = new Thickness(shortScreen ? 2 : 4);
+        BrandPanel.IsVisible = !narrow;
+        ConnectionStatusText.IsVisible = size.Width >= 850;
+        PropertiesButton.IsVisible = !inlineProperties;
+        MoreToolsButton.IsVisible = narrow;
+        EditSeparator.IsVisible = !narrow;
+        PropertiesSeparator.IsVisible = inlineProperties;
+        SelectionInfo.IsVisible = DrawingSurface.SelectedObjectId is not null && size.Width >= 850;
+
+        if (narrow && EditToolsGroup.Parent == ToolbarGrid)
         {
-            margin = 6;
+            ToolbarGrid.Children.Remove(EditToolsGroup);
+            EditingHost.Children.Add(EditToolsGroup);
         }
-        RootGrid.Margin = new Thickness(margin);
-        HeaderGrid.Margin = new Thickness(0, 0, 0, shortScreen ? 4 : 10);
-        BrushPanel.Margin = new Thickness(0, 0, 0, shortScreen ? 4 : 10);
-        FooterGrid.Margin = new Thickness(0, shortScreen ? 4 : 6, 0, 0);
-        StatusText.MaxHeight = shortScreen ? 16 : 32;
-        if (isCompact == compact)
+        else if (!narrow && EditToolsGroup.Parent == EditingHost)
+        {
+            EditingHost.Children.Remove(EditToolsGroup);
+            ToolbarGrid.Children.Add(EditToolsGroup);
+        }
+        if (!inlineProperties && PropertiesGroup.Parent == ToolbarGrid)
+        {
+            ToolbarGrid.Children.Remove(PropertiesGroup);
+            PropertiesHost.Children.Add(PropertiesGroup);
+        }
+        else if (inlineProperties && PropertiesGroup.Parent == PropertiesHost)
+        {
+            PropertiesHost.Children.Remove(PropertiesGroup);
+            ToolbarGrid.Children.Add(PropertiesGroup);
+        }
+        PropertiesGroup.Orientation = inlineProperties ? Orientation.Horizontal : Orientation.Vertical;
+        if (wideLayout != wide)
+        {
+            // A temporary panel must not appear just because the window became smaller.
+            activePanel = wide ? "Шари" : null;
+            wideLayout = wide;
+        }
+        if (activePanel == "Властивості" && inlineProperties || activePanel == "Редагування" && !narrow)
+        {
+            activePanel = null;
+        }
+        UpdatePanelLayout();
+        restoreControlsAfterLayout = true;
+    }
+
+    private void OnLayoutUpdated(object? sender, EventArgs eventArgs)
+    {
+        if (!restoreControlsAfterLayout)
         {
             return;
         }
-        isCompact = compact;
-        LayerSide.IsVisible = !compact;
-        Grid.SetColumn(LayerSide, compact ? 0 : 1);
-        LayerSide.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right;
-        LayerSide.Width = compact ? 300 : 240;
-        AppTitle.FontSize = compact ? 21 : 27;
-        NetworkPanel.Padding = new Thickness(compact ? 4 : 14);
-        BrushPanel.Padding = new Thickness(compact ? 6 : 10);
-        NetworkScroll.MaxHeight = compact ? 260 : 440;
+        restoreControlsAfterLayout = false;
+        foreach (var button in new[] { SelectTool, BrushTool, LineTool, RectangleTool, EllipseTool })
+        {
+            if (button.Classes.Contains("selected"))
+            {
+                button.BringIntoView();
+                break;
+            }
+        }
+        if (topLevel?.FocusManager?.GetFocusedElement() is TextBox field && this.IsVisualAncestorOf(field))
+        {
+            field.BringIntoView();
+        }
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs eventArgs)
+    {
+        base.OnPropertyChanged(eventArgs);
+        if (eventArgs.Property == FontSizeProperty && RootGrid is not null)
+        {
+            UpdateLayoutMode(Bounds.Size);
+        }
+    }
+
+    private void UpdatePanelLayout()
+    {
+        bool wide = wideLayout == true;
+        bool open = activePanel is not null;
+        SidePanel.IsVisible = open;
+        PanelBackdrop.IsVisible = open && !wide;
+        Grid.SetColumn(SidePanel, wide ? 1 : 0);
+        Grid.SetColumnSpan(SidePanel, wide ? 1 : 2);
+        SidePanel.HorizontalAlignment = HorizontalAlignment.Right;
+        SidePanel.Width = wide ? 280 : Math.Max(0, Math.Min(360, BodyGrid.Bounds.Width - 8));
+        SidePanel.Margin = new Thickness(wide ? 8 : 0, 0, 0, 0);
+        PanelTitle.Text = activePanel;
+        LayerSide.IsVisible = activePanel == "Шари";
+        NetworkPanel.IsVisible = activePanel == "Сесія";
+        FilesPanel.IsVisible = activePanel == "Файл";
+        PanelHeader.IsVisible = !LayerSide.IsVisible;
+        PropertiesPanel.IsVisible = activePanel == "Властивості";
+        EditingPanel.IsVisible = activePanel == "Редагування";
+        FilesButton.Classes.Set("selected", FilesPanel.IsVisible);
+        LayersButton.Classes.Set("selected", LayerSide.IsVisible);
+        SessionButton.Classes.Set("selected", NetworkPanel.IsVisible);
+        bool reducedViewport = open && Bounds.Height < 320;
+        BrushPanel.IsVisible = !reducedViewport;
+        FooterGrid.IsVisible = !reducedViewport;
+        ConfirmationScroll.MaxHeight = Math.Max(0, Bounds.Height - 72);
+    }
+
+    private void TogglePanel(string name)
+    {
+        LayerSide.CloseMenu();
+        activePanel = activePanel == name ? null : name;
+        UpdatePanelLayout();
+    }
+
+    private void ClosePanel()
+    {
+        LayerSide.CloseMenu();
+        activePanel = null;
+        UpdatePanelLayout();
+    }
+
+    public bool TryClosePanel()
+    {
+        if (ConfirmationOverlay.IsVisible)
+        {
+            CloseConfirmation();
+            return true;
+        }
+        if (LayerSide.IsVisible && LayerSide.CloseMenu())
+        {
+            return true;
+        }
+        if (activePanel is null)
+        {
+            return false;
+        }
+        ClosePanel();
+        return true;
     }
 
     private MainWindowViewModel? Model => DataContext as MainWindowViewModel;
@@ -110,6 +231,14 @@ public partial class MainView : UserControl
         {
             item.Classes.Set("selected", item == button);
         }
+        UpdateToolProperties();
+    }
+
+    private void UpdateToolProperties()
+    {
+        bool drawing = DrawingSurface.Tool != DrawingTool.Select || DrawingSurface.SelectedObjectId is not null;
+        WidthSettings.IsVisible = drawing;
+        FillSetting.IsVisible = DrawingSurface.Tool == DrawingTool.Rectangle || DrawingSurface.Tool == DrawingTool.Ellipse;
     }
 
     private void OnDeleteClicked(object? sender, RoutedEventArgs eventArgs)
@@ -134,31 +263,22 @@ public partial class MainView : UserControl
 
     private void OnSessionClicked(object? sender, RoutedEventArgs eventArgs)
     {
-        FilesPanel.IsVisible = false;
-        NetworkPanel.IsVisible = !NetworkPanel.IsVisible;
-        NetworkExpander.IsExpanded = NetworkPanel.IsVisible;
-        if (isCompact == true && NetworkPanel.IsVisible)
-        {
-            LayerSide.IsVisible = false;
-        }
+        TogglePanel("Сесія");
     }
 
     private void OnLayersClicked(object? sender, RoutedEventArgs eventArgs)
     {
-        FilesPanel.IsVisible = false;
-        LayerSide.IsVisible = !LayerSide.IsVisible;
-        NetworkPanel.IsVisible = false;
+        TogglePanel("Шари");
     }
 
     private void OnFilesClicked(object? sender, RoutedEventArgs eventArgs)
     {
-        FilesPanel.IsVisible = !FilesPanel.IsVisible;
-        NetworkPanel.IsVisible = false;
-        if (isCompact == true)
-        {
-            LayerSide.IsVisible = false;
-        }
+        TogglePanel("Файл");
     }
+
+    private void OnPropertiesClicked(object? sender, RoutedEventArgs eventArgs) => TogglePanel("Властивості");
+    private void OnMoreToolsClicked(object? sender, RoutedEventArgs eventArgs) => TogglePanel("Редагування");
+    private void OnClosePanelClicked(object? sender, RoutedEventArgs eventArgs) => ClosePanel();
 
     private async void OnExportSvgClicked(object? sender, RoutedEventArgs eventArgs) => await ExportAsync(false);
     private async void OnExportPngClicked(object? sender, RoutedEventArgs eventArgs) => await ExportAsync(true);
@@ -173,7 +293,7 @@ public partial class MainView : UserControl
         }
         var snapshot = model.GetSnapshot();
         var included = VisibleContentOnly.IsChecked == true ? model.LayerEditor.VisibleLayerIds.ToHashSet() : null;
-        FilesPanel.IsVisible = false;
+        ClosePanel();
         try
         {
             bool saved = png
@@ -211,7 +331,7 @@ public partial class MainView : UserControl
         {
             return;
         }
-        FilesPanel.IsVisible = false;
+        ClosePanel();
         try
         {
             if (await AppFilesService.SaveProjectAsync(storage, model.GetSnapshot()))
@@ -241,7 +361,7 @@ public partial class MainView : UserControl
         {
             return;
         }
-        FilesPanel.IsVisible = false;
+        ClosePanel();
         try
         {
             var file = await AppFilesService.OpenProjectAsync(storage);
@@ -329,7 +449,7 @@ public partial class MainView : UserControl
             await Model.CreateSessionAsync();
             if (Model.CanConnect)
             {
-                NetworkPanel.IsVisible = false;
+                ClosePanel();
             }
         }
     }
@@ -347,7 +467,10 @@ public partial class MainView : UserControl
         if (Model is not null)
         {
             await Model.JoinSelectedSessionAsync();
-            NetworkPanel.IsVisible = Model.ConnectedPeers == 0;
+            if (Model.ConnectedPeers > 0)
+            {
+                ClosePanel();
+            }
         }
     }
 
@@ -356,7 +479,10 @@ public partial class MainView : UserControl
         if (Model is not null)
         {
             await Model.JoinManualSessionAsync();
-            NetworkPanel.IsVisible = Model.ConnectedPeers == 0;
+            if (Model.ConnectedPeers > 0)
+            {
+                ClosePanel();
+            }
         }
     }
 
@@ -378,23 +504,72 @@ public partial class MainView : UserControl
         base.OnKeyDown(eventArgs);
         if (eventArgs.Key == Key.Escape)
         {
-            if (ConfirmationOverlay.IsVisible)
-            {
-                CloseConfirmation();
-            }
-            FilesPanel.IsVisible = false;
-            NetworkPanel.IsVisible = false;
-            if (isCompact == true)
-            {
-                LayerSide.IsVisible = false;
-            }
-            eventArgs.Handled = true;
+            eventArgs.Handled = TryClosePanel();
+        }
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs eventArgs)
+    {
+        base.OnAttachedToVisualTree(eventArgs);
+        topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel is not null)
+        {
+            topLevel.BackRequested += OnBackRequested;
+        }
+        ObserveModel();
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs eventArgs)
+    {
+        if (topLevel is not null)
+        {
+            topLevel.BackRequested -= OnBackRequested;
+            topLevel = null;
+        }
+        if (observedModel is not null)
+        {
+            observedModel.PropertyChanged -= OnModelChanged;
+            observedModel = null;
+        }
+        base.OnDetachedFromVisualTree(eventArgs);
+    }
+
+    private void OnBackRequested(object? sender, RoutedEventArgs eventArgs) => eventArgs.Handled = TryClosePanel();
+
+    private void ObserveModel()
+    {
+        if (observedModel is not null)
+        {
+            observedModel.PropertyChanged -= OnModelChanged;
+        }
+        observedModel = Model;
+        if (observedModel is not null && topLevel is not null)
+        {
+            observedModel.PropertyChanged += OnModelChanged;
+        }
+        UpdateConnectionIndicator();
+    }
+
+    private void OnModelChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName == nameof(MainWindowViewModel.ConnectedPeers))
+        {
+            UpdateConnectionIndicator();
+        }
+    }
+
+    private void UpdateConnectionIndicator()
+    {
+        if (ConnectionIndicator is not null)
+        {
+            ConnectionIndicator.Background = Model?.ConnectedPeers > 0 ? Brushes.SeaGreen : Brushes.SlateGray;
         }
     }
 
     protected override void OnDataContextChanged(EventArgs eventArgs)
     {
         base.OnDataContextChanged(eventArgs);
+        ObserveModel();
         foreach (var entry in BrushColors.Items)
         {
             if (entry is ComboBoxItem item && item.Tag is string value && Color.Parse(value).ToUInt32() == Model?.BrushColor)

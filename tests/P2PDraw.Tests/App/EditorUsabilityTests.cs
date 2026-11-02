@@ -43,6 +43,9 @@ public partial class EditorTests
             foreach (string name in new[] { "FilesButton", "LayersButton", "ZoomInButton", "ZoomOutButton", "ResetZoomButton" })
             {
                 var button = view.FindControl<Button>(name)!;
+                Assert.True(button.IsEffectivelyVisible);
+                Assert.True(button.Bounds.Width >= 48);
+                Assert.True(button.Bounds.Height >= 48);
                 Point corner = button.TranslatePoint(new Point(button.Bounds.Width, button.Bounds.Height), window)!.Value;
                 Assert.InRange(corner.X, 0, window.Bounds.Width);
                 Assert.InRange(corner.Y, 0, window.Bounds.Height);
