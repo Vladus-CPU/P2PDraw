@@ -82,8 +82,24 @@ try
                     await peer.SendOperationAsync(strokeEnd, stop.Token);
                     WriteJson(new { @event = "done", command = "draw", strokeId = stroke.StrokeId });
                     continue;
+                case "shape" when commandParts.Length == 6:
+                    if (!Enum.TryParse<ShapeKind>(commandParts[1], true, out var kind) || !Enum.IsDefined(kind))
+                    {
+                        throw new ArgumentException("Shape must be line, rectangle or ellipse.");
+                    }
+                    var shapeStart = new StrokePoint(ParseNumber(commandParts[2]), ParseNumber(commandParts[3]));
+                    var shapeEnd = new StrokePoint(ParseNumber(commandParts[4]), ParseNumber(commandParts[5]));
+                    var shape = engine.AddShape(kind, shapeStart, shapeEnd, 0xFF112233, 2);
+                    await peer.SendOperationAsync(shape, stop.Token);
+                    WriteJson(new { @event = "done", command = "shape", objectId = shape.ShapeId });
+                    continue;
+                case "move" when commandParts.Length == 4:
+                    var offset = new StrokePoint(ParseNumber(commandParts[2]), ParseNumber(commandParts[3]));
+                    var move = engine.MoveObject(Guid.Parse(commandParts[1]), offset);
+                    await peer.SendOperationAsync(move, stop.Token);
+                    break;
                 case "remove" when commandParts.Length == 2:
-                    var remove = engine.RemoveStroke(Guid.Parse(commandParts[1]));
+                    var remove = engine.RemoveObject(Guid.Parse(commandParts[1]));
                     await peer.SendOperationAsync(remove, stop.Token);
                     break;
                 case "clear" when commandParts.Length == 1:
@@ -111,6 +127,7 @@ try
                         @event = "state",
                         connections = peer.ConnectionCount,
                         strokes = snapshot.Strokes,
+                        shapes = snapshot.Shapes,
                         tombstones = snapshot.Tombstones,
                         pending = snapshot.PendingStrokeIds,
                         operations = operationIds
@@ -128,7 +145,8 @@ try
                     string[] commands =
                     [
                         "connect <ip> <port>", "begin", "append <stroke-id> <x> <y> [x y ...]", "end <stroke-id>",
-                        "draw <x1> <y1> <x2> <y2>", "remove <stroke-id>", "clear", "duplicate",
+                        "draw <x1> <y1> <x2> <y2>", "shape <line|rectangle|ellipse> <x1> <y1> <x2> <y2>",
+                        "move <object-id> <offset-x> <offset-y>", "remove <object-id>", "clear", "duplicate",
                         "disconnect", "drop", "state", "snapshot", "log", "quit"
                     ];
                     WriteJson(new { @event = "help", commands });
@@ -139,7 +157,7 @@ try
             WriteJson(new { @event = "done", command = commandParts[0] });
         }
         catch (Exception exception) when (exception is ArgumentException || exception is InvalidOperationException
-            || exception is IOException || exception is SocketException || exception is OperationCanceledException
+            || exception is IOException || exception is InvalidDataException || exception is SocketException || exception is OperationCanceledException
             || exception is FormatException || exception is OverflowException)
         {
             WriteJson(new { @event = "error", message = exception.Message });

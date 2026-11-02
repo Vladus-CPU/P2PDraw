@@ -7,6 +7,116 @@ namespace P2PDraw.Tests.Integration;
 
 public class SimulatorProcessTests
 {
+    [Fact]
+    public async Task RejectedSessionDoesNotStopSimulator()
+    {
+        await using var first = new SimulatorProcess(Guid.NewGuid());
+        await using var incompatible = new SimulatorProcess(Guid.NewGuid());
+        await first.ReadAsync("ready");
+        var remoteReady = await incompatible.ReadAsync("ready");
+        int remotePort = remoteReady.GetProperty("port").GetInt32();
+
+        await first.CommandAsync($"connect 127.0.0.1 {remotePort}", "error");
+        var created = await first.CommandAsync("shape rectangle 10 20 30 40");
+        var state = await first.CommandAsync("state");
+
+        Assert.NotEqual(Guid.Empty, created.GetProperty("objectId").GetGuid());
+        Assert.Single(state.GetProperty("shapes").EnumerateArray());
+        Assert.Equal(0, state.GetProperty("connections").GetInt32());
+    }
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    public async Task VectorEditsRecoverAcrossIndependentMeshProcesses(int peerCount)
+    {
+        var session = Guid.NewGuid();
+        var processes = new List<SimulatorProcess>();
+        var ports = new List<int>();
+        try
+        {
+            for (int index = 0; index < peerCount; index++)
+            {
+                var process = new SimulatorProcess(session);
+                processes.Add(process);
+                var ready = await process.ReadAsync("ready");
+                ports.Add(ready.GetProperty("port").GetInt32());
+            }
+            var joining = new List<Task<JsonElement>>();
+            for (int index = 1; index < peerCount; index++)
+            {
+                joining.Add(processes[index].CommandAsync($"connect 127.0.0.1 {ports[0]}"));
+            }
+            await Task.WhenAll(joining);
+            await WaitForMeshAsync(processes, 0, peerCount - 1);
+
+            string[] kinds = ["line", "rectangle", "ellipse"];
+            var creating = new List<Task<JsonElement>>();
+            for (int index = 0; index < peerCount; index++)
+            {
+                creating.Add(processes[index].CommandAsync($"shape {kinds[index % 3]} {index} 10 {index + 30} 40"));
+            }
+            var created = await Task.WhenAll(creating);
+            Guid objectId = created[0].GetProperty("objectId").GetGuid();
+            await WaitForMeshAsync(processes, peerCount, peerCount - 1);
+            var moving = new List<Task<JsonElement>>();
+            for (int index = 0; index < peerCount; index++)
+            {
+                moving.Add(processes[index].CommandAsync($"move {objectId} {index * 10} {index * 20}"));
+            }
+            await Task.WhenAll(moving);
+            var states = await WaitForMeshAsync(processes, peerCount * 2, peerCount - 1);
+            foreach (var state in states)
+            {
+                AssertMatchingDocuments(states[0], state);
+                Assert.Equal(peerCount, state.GetProperty("shapes").GetArrayLength());
+            }
+
+            await processes[0].DisposeAsync();
+            processes.RemoveAt(0);
+            ports.RemoveAt(0);
+            await WaitForMeshAsync(processes, peerCount * 2, peerCount - 2);
+            await processes[0].CommandAsync("disconnect");
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
+            while ((await processes[0].CommandAsync("state")).GetProperty("connections").GetInt32() != 0)
+            {
+                await Task.Delay(10, timeout.Token);
+            }
+
+            await processes[0].CommandAsync($"remove {objectId}");
+            await processes[1].CommandAsync($"move {objectId} 70 80");
+            await processes[0].CommandAsync("shape rectangle 100 110 150 160");
+            var offlineState = await processes[0].CommandAsync("state");
+            Assert.Equal(0, offlineState.GetProperty("connections").GetInt32());
+            await processes[0].CommandAsync($"connect 127.0.0.1 {ports[1]}");
+            states = await WaitForMeshAsync(processes, peerCount * 2 + 3, peerCount - 2);
+            foreach (var state in states)
+            {
+                AssertMatchingDocuments(states[0], state);
+                Assert.Single(state.GetProperty("tombstones").EnumerateArray());
+                Assert.Equal(peerCount, state.GetProperty("shapes").GetArrayLength());
+            }
+
+            var lateProcess = new SimulatorProcess(session);
+            processes.Add(lateProcess);
+            await lateProcess.ReadAsync("ready");
+            await lateProcess.CommandAsync($"connect 127.0.0.1 {ports[0]}");
+            states = await WaitForMeshAsync(processes, peerCount * 2 + 3, peerCount - 1);
+            foreach (var state in states)
+            {
+                AssertMatchingDocuments(states[0], state);
+            }
+        }
+        finally
+        {
+            foreach (var process in processes)
+            {
+                await process.DisposeAsync();
+            }
+        }
+    }
+
     [Theory]
     [InlineData(3)]
     [InlineData(4)]
@@ -76,7 +186,7 @@ public class SimulatorProcessTests
 
     private static void AssertMatchingDocuments(JsonElement expected, JsonElement actual)
     {
-        foreach (string property in new[] { "strokes", "tombstones", "pending", "operations" })
+        foreach (string property in new[] { "strokes", "shapes", "tombstones", "pending", "operations" })
         {
             Assert.True(JsonElement.DeepEquals(expected.GetProperty(property), actual.GetProperty(property)), property);
         }
@@ -259,10 +369,10 @@ public class SimulatorProcessTests
             standardErrors = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
         }
 
-        public async Task<JsonElement> CommandAsync(string command)
+        public async Task<JsonElement> CommandAsync(string command, string? expectedEvent = null)
         {
             await process.StandardInput.WriteLineAsync(command.AsMemory(), TestContext.Current.CancellationToken);
-            string eventName = command == "state" || command == "log" ? command : "done";
+            string eventName = expectedEvent ?? (command == "state" || command == "log" ? command : "done");
             return await ReadAsync(eventName);
         }
 
