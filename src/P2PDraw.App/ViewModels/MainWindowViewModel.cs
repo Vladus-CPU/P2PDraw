@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using P2PDraw.App.Editing;
 using P2PDraw.Core.Models;
 using P2PDraw.Core.Operations;
 using P2PDraw.Core.Sync;
@@ -15,6 +16,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
     private double brushWidth = 3;
     private bool fillShapes;
     private bool isDisposed;
+    private readonly ObjectDuplicator duplicator;
     private SyncEngine Engine => Session.Engine;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -112,6 +114,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         Session = new SessionViewModel(args);
         LayerEditor = new LayersViewModel(() => Engine, Session.EnsureSession, Session.PublishOperation);
         LayerEditor.Error += message => Status = message;
+        duplicator = new ObjectDuplicator(() => Engine, Session.PublishOperation);
         Session.PropertyChanged += OnSessionPropertyChanged;
         Session.DocumentChanged += RefreshDocument;
     }
@@ -227,6 +230,49 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         catch (ArgumentException)
         {
             Status = "Не вдалося видалити вибраний об'єкт.";
+        }
+    }
+
+    public void ResizeShape(Guid shapeId, StrokePoint start, StrokePoint end)
+    {
+        if (isDisposed || !Session.EnsureSession())
+        {
+            return;
+        }
+        try
+        {
+            Session.PublishOperation(Engine.ResizeShape(shapeId, start, end));
+        }
+        catch (Exception exception) when (exception is ArgumentException || exception is InvalidOperationException)
+        {
+            Status = "Не вдалося змінити розмір: фігуру видалено або координати некоректні.";
+            RefreshDocument();
+        }
+    }
+
+    public void DuplicateObject(Guid objectId)
+    {
+        if (isDisposed || !Session.EnsureSession())
+        {
+            return;
+        }
+        try
+        {
+            var displacement = new StrokePoint(16, 16);
+            var shape = Shapes.FirstOrDefault(item => item.ShapeId == objectId);
+            var stroke = Strokes.FirstOrDefault(item => item.StrokeId == objectId);
+            if (shape is not null)
+            {
+                duplicator.Copy(shape, displacement);
+            }
+            else if (stroke is not null)
+            {
+                duplicator.Copy(stroke, displacement);
+            }
+        }
+        catch (Exception exception) when (exception is ArgumentException || exception is InvalidOperationException)
+        {
+            Status = "Не вдалося дублювати об'єкт: шар уже видалено.";
         }
     }
 

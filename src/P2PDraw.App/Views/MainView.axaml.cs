@@ -22,9 +22,11 @@ public partial class MainView : UserControl
         DrawingSurface.ShapeCreated += (kind, start, end) => Model?.AddShape(kind, start, end);
         DrawingSurface.ObjectMoved += (objectId, offset) => Model?.MoveObject(objectId, offset);
         DrawingSurface.ObjectDeleted += objectId => Model?.RemoveObject(objectId);
+        DrawingSurface.ShapeResized += (shapeId, start, end) => Model?.ResizeShape(shapeId, start, end);
         DrawingSurface.SelectionChanged += selected =>
         {
             DeleteButton.IsEnabled = selected is not null;
+            DuplicateButton.IsEnabled = selected is not null;
             if (Model is not null)
             {
                 Model.LayerEditor.SelectedObjectId = selected;
@@ -83,6 +85,14 @@ public partial class MainView : UserControl
         {
             Model?.RemoveObject(selected);
             DrawingSurface.ClearSelection();
+        }
+    }
+
+    private void OnDuplicateClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DrawingSurface.SelectedObjectId is Guid selected)
+        {
+            Model?.DuplicateObject(selected);
         }
     }
 

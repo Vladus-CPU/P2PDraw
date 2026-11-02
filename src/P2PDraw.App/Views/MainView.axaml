@@ -56,6 +56,7 @@
                 <Button x:Name="DeleteButton" Classes="tool" Click="OnDeleteClicked" IsEnabled="False" ToolTip.Tip="Видалити об'єкт" Margin="0,0,8,2">
                     <Path Data="M3,5 L19,5 M8,5 L8,2 14,2 14,5 M5,5 L6,21 16,21 17,5 M9,9 L9,17 M13,9 L13,17" Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1.7" Width="22" Height="22" Stretch="Uniform" />
                 </Button>
+                <Button x:Name="DuplicateButton" Classes="tool" Content="⧉" Click="OnDuplicateClicked" IsEnabled="False" ToolTip.Tip="Дублювати об'єкт" Margin="0,0,4,2" />
                 <ComboBox x:Name="BrushColors" Width="104" MinHeight="44" Margin="0,0,8,2" SelectedIndex="0" SelectionChanged="OnColorChanged" ToolTip.Tip="Колір контуру">
                     <ComboBoxItem Content="Чорний" Tag="#FF253449" />
                     <ComboBoxItem Content="Синій" Tag="#FF2563EB" />
