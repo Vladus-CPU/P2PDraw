@@ -19,6 +19,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public SessionViewModel Session { get; }
+    public LayersViewModel LayerEditor { get; }
     public ImmutableArray<Stroke> Strokes { get; private set; } = [];
     public ImmutableArray<Shape> Shapes { get; private set; } = [];
     public int StrokeCount => Strokes.Length;
@@ -109,6 +110,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
     public MainWindowViewModel(string[]? args = null)
     {
         Session = new SessionViewModel(args);
+        LayerEditor = new LayersViewModel(() => Engine, Session.EnsureSession, Session.PublishOperation);
+        LayerEditor.Error += message => Status = message;
         Session.PropertyChanged += OnSessionPropertyChanged;
         Session.DocumentChanged += RefreshDocument;
     }
@@ -125,12 +128,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
 
     public bool BeginStroke(StrokePoint point)
     {
-        if (isDisposed || !Session.EnsureSession())
+        if (isDisposed || !LayerEditor.CanDraw || !Session.EnsureSession())
         {
             return false;
         }
         EndStroke();
-        var begin = Engine.BeginStroke(BrushColor, BrushWidth);
+        var begin = Engine.BeginStroke(BrushColor, BrushWidth, LayerEditor.ActiveLayerId);
         activeStrokeId = begin.StrokeId;
         Session.PublishOperation(begin);
         AppendStroke(point);
@@ -174,7 +177,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
 
     public void AddShape(ShapeKind kind, StrokePoint start, StrokePoint end)
     {
-        if (isDisposed || !Session.EnsureSession())
+        if (isDisposed || !LayerEditor.CanDraw || !Session.EnsureSession())
         {
             return;
         }
@@ -182,7 +185,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         uint? fill = FillShapes && kind != ShapeKind.Line ? BrushColor : null;
         try
         {
-            Session.PublishOperation(Engine.AddShape(kind, start, end, BrushColor, BrushWidth, fill));
+            Session.PublishOperation(Engine.AddShape(kind, start, end, BrushColor, BrushWidth, fill, LayerEditor.ActiveLayerId));
         }
         catch (ArgumentException)
         {
@@ -255,6 +258,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged, IAsyncDisposab
         Strokes = snapshot.Strokes;
         Shapes = snapshot.Shapes;
         OperationCount = snapshot.Operations.Length;
+        LayerEditor.Refresh();
         Notify(nameof(Strokes));
         Notify(nameof(Shapes));
         Notify(nameof(StrokeCount));

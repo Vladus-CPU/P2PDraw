@@ -1,0 +1,37 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:P2PDraw.App.ViewModels" x:Class="P2PDraw.App.Views.LayersPanel" x:DataType="vm:LayersViewModel">
+    <Border Background="White" BorderBrush="#CCD5E1" BorderThickness="1" CornerRadius="8" Padding="8">
+        <Grid RowDefinitions="Auto,*" RowSpacing="6">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="Шари" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Content="×" Click="OnCloseClicked" ToolTip.Tip="Згорнути шари" Padding="8,2" />
+            </Grid>
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="6">
+                    <ListBox x:Name="LayerList" ItemsSource="{Binding Layers}" SelectedItem="{Binding SelectedLayer, Mode=TwoWay}" MinHeight="100" MaxHeight="260">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:LayerEntry">
+                                <Grid ColumnDefinitions="*,40,40">
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                    <Button Grid.Column="1" Content="{Binding VisibilityIcon}" Tag="{Binding LayerId}" Click="OnVisibilityClicked" Padding="4" ToolTip.Tip="Показати або приховати локально" />
+                                    <Button Grid.Column="2" Content="{Binding LockIcon}" Tag="{Binding LayerId}" Click="OnLockClicked" Padding="4" ToolTip.Tip="Блокування редагування на цьому пристрої" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <TextBox x:Name="LayerNameBox" Text="{Binding LayerName, Mode=TwoWay}" PlaceholderText="Назва шару" MaxLength="100" IsEnabled="{Binding HasActiveLayer}" />
+                    <Button x:Name="RenameLayerButton" Content="Перейменувати" Click="OnRenameClicked" IsEnabled="{Binding HasActiveLayer}" />
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
+                        <Button x:Name="AddLayerButton" Content="Новий шар" Click="OnAddClicked" />
+                        <Button Grid.Column="1" Content="↑" Click="OnRaiseClicked" IsEnabled="{Binding CanRaise}" ToolTip.Tip="Шар вище" />
+                        <Button Grid.Column="2" Content="↓" Click="OnLowerClicked" IsEnabled="{Binding CanLower}" ToolTip.Tip="Шар нижче" />
+                    </Grid>
+                    <Button x:Name="MoveToLayerButton" Content="Перенести об'єкт сюди" Click="OnMoveObjectClicked" IsEnabled="{Binding CanMoveObject}" />
+                    <Button x:Name="ClearLayerButton" Content="Очистити шар" Click="OnClearClicked" IsEnabled="{Binding HasActiveLayer}" />
+                    <Button x:Name="RemoveLayerButton" Content="Видалити шар" Click="OnRemoveClicked" IsEnabled="{Binding HasActiveLayer}" Foreground="#A52D36" />
+                    <TextBlock Text="Видимість і блокування діють лише на цьому пристрої." Classes="label" TextWrapping="Wrap" />
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Border>
+</UserControl>

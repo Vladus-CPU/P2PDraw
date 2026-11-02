@@ -22,23 +22,39 @@ public partial class MainView : UserControl
         DrawingSurface.ShapeCreated += (kind, start, end) => Model?.AddShape(kind, start, end);
         DrawingSurface.ObjectMoved += (objectId, offset) => Model?.MoveObject(objectId, offset);
         DrawingSurface.ObjectDeleted += objectId => Model?.RemoveObject(objectId);
-        DrawingSurface.SelectionChanged += selected => DeleteButton.IsEnabled = selected is not null;
+        DrawingSurface.SelectionChanged += selected =>
+        {
+            DeleteButton.IsEnabled = selected is not null;
+            if (Model is not null)
+            {
+                Model.LayerEditor.SelectedObjectId = selected;
+            }
+        };
+        LayerSide.CloseRequested += () => LayerSide.IsVisible = false;
+        LayerSide.ClearRequested += () => ConfirmLayerAction(false);
+        LayerSide.RemoveRequested += () => ConfirmLayerAction(true);
         SizeChanged += OnSizeChanged;
         BodyGrid.SizeChanged += (_, eventArgs) =>
         {
             NetworkPanel.MaxHeight = eventArgs.NewSize.Height;
+            LayerSide.MaxHeight = eventArgs.NewSize.Height;
+            LayerSide.Width = isCompact == true ? Math.Min(300, eventArgs.NewSize.Width) : 240;
             NetworkScroll.MaxHeight = Math.Max(0, Math.Min(440, eventArgs.NewSize.Height - 96));
         };
     }
 
     private void OnSizeChanged(object? sender, SizeChangedEventArgs eventArgs)
     {
-        bool compact = eventArgs.NewSize.Width < 900;
+        bool compact = eventArgs.NewSize.Width < 1000 || eventArgs.NewSize.Height < 600;
         if (isCompact == compact)
         {
             return;
         }
         isCompact = compact;
+        LayerSide.IsVisible = !compact;
+        Grid.SetColumn(LayerSide, compact ? 0 : 1);
+        LayerSide.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right;
+        LayerSide.Width = compact ? 300 : 240;
         RootGrid.Margin = new Thickness(compact ? 8 : 16);
         AppTitle.FontSize = compact ? 21 : 27;
         NetworkPanel.Padding = new Thickness(compact ? 4 : 14);
@@ -74,6 +90,39 @@ public partial class MainView : UserControl
     {
         NetworkPanel.IsVisible = !NetworkPanel.IsVisible;
         NetworkExpander.IsExpanded = NetworkPanel.IsVisible;
+        if (isCompact == true && NetworkPanel.IsVisible)
+        {
+            LayerSide.IsVisible = false;
+        }
+    }
+
+    private void OnLayersClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        LayerSide.IsVisible = !LayerSide.IsVisible;
+        NetworkPanel.IsVisible = false;
+    }
+
+    private void ConfirmLayerAction(bool remove)
+    {
+        var model = Model;
+        if (model is null || !model.LayerEditor.HasActiveLayer)
+        {
+            return;
+        }
+        Guid layerId = model.LayerEditor.ActiveLayerId;
+        string verb = remove ? "Видалити" : "Очистити";
+        ConfirmAction($"{verb} шар «{model.LayerEditor.LayerName}»? Зміни побачать усі учасники сесії.", () =>
+        {
+            model.EndStroke();
+            if (remove)
+            {
+                model.LayerEditor.RemoveLayer(layerId);
+            }
+            else
+            {
+                model.LayerEditor.ClearLayer(layerId);
+            }
+        });
     }
 
     private async void OnCreateSessionClicked(object? sender, RoutedEventArgs eventArgs)

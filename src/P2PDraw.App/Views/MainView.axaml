@@ -3,6 +3,7 @@
              xmlns:controls="using:P2PDraw.App.Controls"
              xmlns:vm="using:P2PDraw.App.ViewModels"
              xmlns:discovery="using:P2PDraw.Networking.Discovery"
+             xmlns:views="using:P2PDraw.App.Views"
              x:Class="P2PDraw.App.Views.MainView" x:DataType="vm:MainWindowViewModel" Background="#EEF1F5">
     <UserControl.Styles>
         <Style Selector="TextBlock.label">
@@ -71,12 +72,15 @@
                 <Button x:Name="ClearButton" Content="Очистити полотно" Click="OnClearClicked" Foreground="#A52D36" ToolTip.Tip="Видалити відомі об'єкти на всіх шарах" />
             </WrapPanel>
         </Border>
-        <Grid x:Name="BodyGrid" Grid.Row="2">
+        <Grid x:Name="BodyGrid" Grid.Row="2" ColumnDefinitions="*,Auto">
             <Border BorderBrush="#CCD5E1" BorderThickness="1" Background="White" CornerRadius="4" ClipToBounds="True">
                 <controls:DrawingCanvas x:Name="DrawingSurface" Strokes="{Binding Strokes}" Shapes="{Binding Shapes}"
+                                        VisibleLayerIds="{Binding LayerEditor.VisibleLayerIds}" SelectableLayerIds="{Binding LayerEditor.SelectableLayerIds}"
+                                        CanDraw="{Binding LayerEditor.CanDraw}"
                                         StrokeColor="{Binding BrushColor}" StrokeWidth="{Binding BrushWidth}" FillShapes="{Binding FillShapes}" />
             </Border>
-            <Border x:Name="NetworkPanel" IsVisible="False" MaxWidth="440" HorizontalAlignment="Right" VerticalAlignment="Top"
+            <views:LayersPanel x:Name="LayerSide" Grid.Column="1" Width="240" Margin="8,0,0,0" DataContext="{Binding LayerEditor}" />
+            <Border x:Name="NetworkPanel" Grid.ColumnSpan="2" IsVisible="False" MaxWidth="440" HorizontalAlignment="Right" VerticalAlignment="Top"
                     Background="White" BorderBrush="#B8C7DA" BorderThickness="1" CornerRadius="10" Padding="14">
                 <Expander x:Name="NetworkExpander" Header="Сесії та підключення" IsExpanded="False" HorizontalContentAlignment="Stretch">
                     <ScrollViewer x:Name="NetworkScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
@@ -120,10 +124,11 @@
                 </Expander>
             </Border>
         </Grid>
-        <Grid x:Name="FooterGrid" Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="0,8,0,0">
+        <Grid x:Name="FooterGrid" Grid.Row="3" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8" Margin="0,8,0,0">
             <TextBlock Text="{Binding Status}" Classes="label" TextTrimming="CharacterEllipsis" MaxHeight="32" VerticalAlignment="Center" />
-            <TextBlock Grid.Column="1" Text="{Binding ObjectCount, StringFormat='Об’єктів: {0}'}" Classes="label" VerticalAlignment="Center" />
-            <Button x:Name="ResetZoomButton" Grid.Column="2" Content="100%" Click="OnResetViewClicked" ToolTip.Tip="Повернути масштаб 100% і центр полотна" MinHeight="32" Padding="8,2" />
+            <Button x:Name="LayersButton" Grid.Column="1" Content="Шари" Click="OnLayersClicked" Padding="8,2" />
+            <TextBlock Grid.Column="2" Text="{Binding ObjectCount, StringFormat='Об’єктів: {0}'}" Classes="label" VerticalAlignment="Center" />
+            <Button x:Name="ResetZoomButton" Grid.Column="3" Content="100%" Click="OnResetViewClicked" ToolTip.Tip="Повернути масштаб 100% і центр полотна" MinHeight="32" Padding="8,2" />
         </Grid>
         <Border x:Name="ConfirmationOverlay" Grid.RowSpan="4" Background="#66000000" IsVisible="False">
             <Border Background="White" CornerRadius="10" Padding="20" Margin="12" MaxWidth="400" HorizontalAlignment="Center" VerticalAlignment="Center">

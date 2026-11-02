@@ -556,7 +556,11 @@ public partial class EditorTests
     private static string Normalize(MainWindowViewModel model)
     {
         var snapshot = model.GetSnapshot();
-        return JsonSerializer.Serialize(new { snapshot.Strokes, snapshot.Shapes, snapshot.Tombstones, snapshot.PendingStrokeIds, snapshot.Operations });
+        return JsonSerializer.Serialize(new
+        {
+            snapshot.Strokes, snapshot.Shapes, snapshot.Layers, snapshot.LayerTombstones,
+            snapshot.Tombstones, snapshot.PendingStrokeIds, snapshot.PendingLayerIds, snapshot.Operations
+        });
     }
 
     private static void DrawStroke(MainWindow window, Point start, Point end)
