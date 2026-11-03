@@ -9,14 +9,13 @@ using P2PDraw.App.Session;
 using P2PDraw.Core.Operations;
 using P2PDraw.Core.Sync;
 using P2PDraw.Networking.Discovery;
-using P2PDraw.Networking.Protocol;
 
 namespace P2PDraw.App.ViewModels;
 
 public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
 {
-    private readonly CancellationTokenSource lifetime = new();
-    private readonly SessionConnection connection;
+    private readonly EditorSession editorSession;
+    private SessionConnection Connection => editorSession.Connection;
     private DiscoveredPeer? selectedPeer;
     private DiscoveredPeer? selectedSession;
     private bool hadConnection;
@@ -26,22 +25,20 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
     private string remoteAddress = "127.0.0.1";
     private string remotePort = "5102";
     private string status = "Можна малювати офлайн або підключити інший вузол.";
-    private bool isSessionLocked;
     private bool isListening;
     private bool isBusy;
     private bool isDisposed;
-    private bool isReplacingSession;
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event Action? DocumentChanged;
-    public SyncEngine Engine { get; private set; }
+    public SyncEngine Engine => editorSession.Engine;
     public int ConnectedPeers { get; private set; }
     public ImmutableArray<DiscoveredPeer> DiscoveredPeers { get; private set; } = [];
     public ImmutableArray<DiscoveredPeer> AvailableSessions { get; private set; } = [];
     public bool CanCreateSession => CanStartListening;
     public bool CanSearchSessions => !isBusy && !isDisposed;
     public bool CanJoinSession => SelectedSession is not null && !isBusy && !isDisposed;
-    public string SessionTitle => isSessionLocked ? $"Сесія {Engine.SessionId.ToString()[..8]}" : "Локальний документ";
+    public string SessionTitle => editorSession.IsLocked ? $"Сесія {Engine.SessionId.ToString()[..8]}" : "Локальний документ";
 
     public DiscoveredPeer? SelectedSession
     {
@@ -74,7 +71,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
             Notify(nameof(CanConnectDiscovered));
         }
     }
-    public bool CanEditSession => !isSessionLocked || (Engine.GetOperations().IsEmpty && ConnectedPeers == 0);
+    public bool CanEditSession => !editorSession.IsLocked || (Engine.GetOperations().IsEmpty && ConnectedPeers == 0);
     public bool CanStartListening => !isListening && !isBusy && !isDisposed;
     public bool CanConnect => isListening && !isBusy && !isDisposed;
     public bool CanDisconnect => isListening && !isBusy && !isDisposed;
@@ -86,7 +83,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
             {
                 return "Підключено";
             }
-            if (connection.IsOffline)
+            if (Connection.IsOffline)
             {
                 return "Офлайн";
             }
@@ -162,12 +159,12 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
         bool hasValidSession = Guid.TryParse(sessionId, out var parsedSession) && parsedSession != Guid.Empty;
         Guid initialSession = hasValidSession ? parsedSession : Guid.NewGuid();
-        Engine = new SyncEngine(Guid.NewGuid(), initialSession);
-        connection = new SessionConnection(() => Engine);
-        connection.Changed += OnPeerChanged;
-        connection.Error += OnPeerError;
-        connection.DiscoveryChanged += OnDiscoveryChanged;
-        connection.DiscoveryError += OnDiscoveryError;
+        editorSession = new EditorSession(initialSession);
+        editorSession.Replaced += OnSessionReplaced;
+        Connection.Changed += OnPeerChanged;
+        Connection.Error += OnPeerError;
+        Connection.DiscoveryChanged += OnDiscoveryChanged;
+        Connection.DiscoveryError += OnDiscoveryError;
     }
 
     public async Task CreateSessionAsync()
@@ -176,7 +173,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             return;
         }
-        if (Engine.GetOperations().IsEmpty && !isSessionLocked)
+        if (Engine.GetOperations().IsEmpty && !editorSession.IsLocked)
         {
             SessionId = Guid.NewGuid().ToString();
         }
@@ -261,16 +258,16 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             return false;
         }
-        if (Engine.SessionId == requestedSession)
-        {
-            return true;
-        }
-        if (!Engine.GetOperations().IsEmpty)
+        var replacement = editorSession.PrepareJoin(requestedSession);
+        if (replacement is null)
         {
             Status = "Документ уже містить зміни. Іншу сесію не відкрито, щоб не втратити малюнок.";
             return false;
         }
-        await ReplaceSessionAsync(new SyncEngine(Engine.PeerId, requestedSession));
+        if (!ReferenceEquals(Engine, replacement))
+        {
+            await ReplaceSessionAsync(replacement);
+        }
         return true;
     }
 
@@ -285,19 +282,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
         {
             return false;
         }
-        var replacement = await Task.Run(() =>
-        {
-            var restored = new SyncEngine(Guid.NewGuid(), Guid.NewGuid());
-            restored.MergeSnapshot(snapshot with { SessionId = restored.SessionId });
-            foreach (var operation in restored.GetOperations())
-            {
-                if (!MessageFraming.FitsInFrame<NetworkMessage>(new OperationMessage(operation)))
-                {
-                    throw new ArgumentException("Операція у файлі перевищує 4 МіБ і не може бути синхронізована. Відкриття скасовано.");
-                }
-            }
-            return restored;
-        }, lifetime.Token);
+        var replacement = await editorSession.RestoreAsync(snapshot);
         if (isDisposed || isBusy)
         {
             return false;
@@ -311,29 +296,29 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
     private async Task ReplaceSessionAsync(SyncEngine replacement)
     {
         SetBusy(true);
-        isReplacingSession = true;
         try
         {
-            await connection.StopAsync();
-            Engine = replacement;
-            SessionId = replacement.SessionId.ToString();
-            isSessionLocked = !Engine.GetOperations().IsEmpty;
-            isListening = false;
-            hadConnection = false;
-            DiscoveredPeers = [];
-            AvailableSessions = [];
-            SelectedPeer = null;
-            SelectedSession = null;
-            Notify(nameof(DiscoveredPeers));
-            Notify(nameof(AvailableSessions));
-            Notify(nameof(CanEditSession));
-            RefreshConnection();
+            await editorSession.ReplaceAsync(replacement);
         }
         finally
         {
-            isReplacingSession = false;
             SetBusy(false);
         }
+    }
+
+    private void OnSessionReplaced()
+    {
+        SessionId = Engine.SessionId.ToString();
+        isListening = false;
+        hadConnection = false;
+        DiscoveredPeers = [];
+        AvailableSessions = [];
+        SelectedPeer = null;
+        SelectedSession = null;
+        Notify(nameof(DiscoveredPeers));
+        Notify(nameof(AvailableSessions));
+        Notify(nameof(CanEditSession));
+        RefreshConnection();
     }
 
     public async Task StartListeningAsync()
@@ -355,12 +340,12 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
         SetBusy(true);
         try
         {
-            if (!await connection.StartListeningAsync(port) || isDisposed)
+            if (!await Connection.StartListeningAsync(port) || isDisposed)
             {
                 return;
             }
             isListening = true;
-            LocalPort = connection.Port.ToString();
+            LocalPort = Connection.Port.ToString();
             Status = $"Прослуховування порту {LocalPort}.";
             RefreshConnection();
             await StartDiscoveryAsync();
@@ -379,7 +364,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
     {
         try
         {
-            if (await connection.StartDiscoveryAsync(includeOtherSessions))
+            if (await Connection.StartDiscoveryAsync(includeOtherSessions))
             {
                 RefreshDiscoveredPeers();
             }
@@ -406,13 +391,13 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     private void RefreshDiscoveredPeers()
     {
-        if (isDisposed || !connection.HasDiscovery)
+        if (isDisposed || !Connection.HasDiscovery)
         {
             return;
         }
         Guid? selectedId = SelectedPeer?.PeerId;
         Guid? selectedSessionId = SelectedSession?.SessionId;
-        DiscoveredPeers = connection.GetDiscoveredPeers();
+        DiscoveredPeers = Connection.GetDiscoveredPeers();
         Notify(nameof(DiscoveredPeers));
         SelectedPeer = DiscoveredPeers.FirstOrDefault(found => found.PeerId == selectedId);
         var sessions = new List<DiscoveredPeer>();
@@ -428,9 +413,9 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
         Notify(nameof(AvailableSessions));
         SelectedSession = AvailableSessions.FirstOrDefault(found => found.SessionId == selectedSessionId);
         DiscoveryStatus = AvailableSessions.IsEmpty ? "Пошук сесій… Можна підключитися вручну." : $"Знайдено сесій: {AvailableSessions.Length}";
-        if (isListening && !connection.IsOffline && !isBusy)
+        if (isListening && !Connection.IsOffline && !isBusy)
         {
-            connection.ConnectMesh(DiscoveredPeers);
+            Connection.ConnectMesh(DiscoveredPeers);
         }
     }
 
@@ -447,7 +432,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public async Task ConnectAsync()
     {
-        if (!CanConnect || !connection.HasPeer || isDisposed)
+        if (!CanConnect || !Connection.HasPeer || isDisposed)
         {
             return;
         }
@@ -461,7 +446,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
         Status = "Підключення…";
         try
         {
-            await connection.ConnectAsync(RemoteAddress, port);
+            await Connection.ConnectAsync(RemoteAddress, port);
             Status = "З'єднання встановлено. Зміни передаються автоматично.";
         }
         catch (Exception exception) when (exception is IOException || exception is InvalidDataException || exception is SocketException
@@ -478,28 +463,28 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public void Disconnect()
     {
-        connection.Disconnect();
+        Connection.Disconnect();
         Status = "Відключено. Малювання офлайн доступне; для синхронізації підключіться знову.";
         RefreshConnection();
     }
 
     public void ResumeNetworking()
     {
-        if (isDisposed || connection.IsOffline || !connection.HasPeer)
+        if (isDisposed || Connection.IsOffline || !Connection.HasPeer)
         {
             return;
         }
-        connection.ResumeNetworking();
+        Connection.ResumeNetworking();
         RefreshConnection();
     }
 
     public bool EnsureSession()
     {
-        if (isDisposed || isReplacingSession)
+        if (isDisposed || editorSession.IsReplacing)
         {
             return false;
         }
-        if (isSessionLocked)
+        if (editorSession.IsLocked)
         {
             return true;
         }
@@ -508,18 +493,17 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
             Status = "SessionId має бути непорожнім GUID. Скопіюйте його з іншого вікна.";
             return false;
         }
-        if (Engine.SessionId != requestedSession)
+        if (!editorSession.EnsureSession(requestedSession))
         {
-            Engine = new SyncEngine(Engine.PeerId, requestedSession);
+            return false;
         }
-        isSessionLocked = true;
         Notify(nameof(CanEditSession));
         return true;
     }
 
     public void PublishOperation(Operation operation)
     {
-        connection.PublishOperation(operation);
+        Connection.PublishOperation(operation);
         RefreshConnection();
     }
 
@@ -529,7 +513,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
     {
         Dispatcher.UIThread.Post(() =>
         {
-            if (!isDisposed && !connection.IsOffline && connection.HasPeer && connection.ConnectionCount == 0)
+            if (!isDisposed && !Connection.IsOffline && Connection.HasPeer && Connection.ConnectionCount == 0)
             {
                 Status = "З'єднання втрачено. Очікуємо повторного підключення.";
             }
@@ -543,7 +527,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
             return;
         }
         int previousCount = ConnectedPeers;
-        ConnectedPeers = connection.ConnectionCount;
+        ConnectedPeers = Connection.ConnectionCount;
         if (ConnectedPeers > 0)
         {
             hadConnection = true;
@@ -552,7 +536,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
                 Status = "З'єднання встановлено. Зміни передаються автоматично.";
             }
         }
-        else if (previousCount > 0 && !connection.IsOffline)
+        else if (previousCount > 0 && !Connection.IsOffline)
         {
             Status = "З'єднання втрачено. Очікуємо повторного підключення.";
         }
@@ -587,12 +571,11 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
             return;
         }
         isDisposed = true;
-        await lifetime.CancelAsync();
-        connection.Changed -= OnPeerChanged;
-        connection.Error -= OnPeerError;
-        connection.DiscoveryChanged -= OnDiscoveryChanged;
-        connection.DiscoveryError -= OnDiscoveryError;
-        await connection.DisposeAsync();
-        lifetime.Dispose();
+        editorSession.Replaced -= OnSessionReplaced;
+        Connection.Changed -= OnPeerChanged;
+        Connection.Error -= OnPeerError;
+        Connection.DiscoveryChanged -= OnDiscoveryChanged;
+        Connection.DiscoveryError -= OnDiscoveryError;
+        await editorSession.DisposeAsync();
     }
 }
