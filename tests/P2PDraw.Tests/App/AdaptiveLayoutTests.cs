@@ -5,12 +5,14 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using P2PDraw.App.Controls;
 using P2PDraw.App.Interaction;
 using P2PDraw.App.ViewModels;
 using P2PDraw.App.Views;
+using IconPath = Avalonia.Controls.Shapes.Path;
 using Xunit;
 
 namespace P2PDraw.Tests.App;
@@ -74,6 +76,72 @@ public partial class EditorTests
             }
             Assert.Equal(0, model.OperationCount);
             window.Close();
+            return true;
+        }, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task EditorIconButtonsUseCenteredTwentyFourPixelIcons()
+    {
+        await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
+        await session.Dispatch(async () =>
+        {
+            await using var model = new MainWindowViewModel();
+            var view = new MainView { DataContext = model };
+            var window = new Window { Content = view, Width = 1180, Height = 760 };
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                string[] iconButtonNames =
+                [
+                    "SelectTool", "BrushTool", "LineTool", "RectangleTool", "EllipseTool",
+                    "DeleteButton", "DuplicateButton", "UndoButton", "RedoButton", "PropertiesButton",
+                    "MoreToolsButton", "ClosePanelButton", "ZoomOutButton", "ZoomInButton"
+                ];
+
+                foreach (string name in iconButtonNames)
+                {
+                    var button = view.FindControl<Button>(name)!;
+                    var icon = Assert.IsType<IconPath>(button.Content);
+
+                    Assert.Equal(HorizontalAlignment.Center, button.HorizontalContentAlignment);
+                    Assert.Equal(VerticalAlignment.Center, button.VerticalContentAlignment);
+                    Assert.Equal(24, icon.Width);
+                    Assert.Equal(24, icon.Height);
+                    Assert.Equal(Stretch.None, icon.Stretch);
+                    Assert.Equal(12, icon.Data!.Bounds.Center.X);
+                    Assert.Equal(12, icon.Data.Bounds.Center.Y);
+                }
+
+                string[] visibleIconButtonNames =
+                [
+                    "SelectTool", "BrushTool", "LineTool", "RectangleTool", "EllipseTool",
+                    "DeleteButton", "DuplicateButton", "UndoButton", "RedoButton", "ZoomOutButton", "ZoomInButton"
+                ];
+
+                foreach (string name in visibleIconButtonNames)
+                {
+                    var button = view.FindControl<Button>(name)!;
+                    var icon = Assert.IsType<IconPath>(button.Content);
+                    Assert.Equal(new Size(48, 48), button.Bounds.Size);
+
+                    Point iconPosition = icon.TranslatePoint(default, button)!.Value;
+                    Assert.Equal(12, iconPosition.X);
+                    Assert.Equal(12, iconPosition.Y);
+                }
+
+                var selectedTool = view.FindControl<Button>("BrushTool")!;
+                var disabledTool = view.FindControl<Button>("DeleteButton")!;
+                Assert.Contains("selected", selectedTool.Classes);
+                Assert.False(disabledTool.IsEnabled);
+                Assert.Equal(selectedTool.BorderThickness, disabledTool.BorderThickness);
+            }
+            finally
+            {
+                window.Close();
+            }
             return true;
         }, TestContext.Current.CancellationToken);
     }

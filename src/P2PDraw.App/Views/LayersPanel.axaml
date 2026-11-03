@@ -4,8 +4,9 @@
     <UserControl.Styles>
         <Style Selector="Button.layer-toggle">
             <Setter Property="Width" Value="48" />
+            <Setter Property="Height" Value="48" />
             <Setter Property="MinHeight" Value="48" />
-            <Setter Property="Padding" Value="12" />
+            <Setter Property="Padding" Value="8" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="#52637A" />
             <Setter Property="HorizontalContentAlignment" Value="Center" />
@@ -17,7 +18,7 @@
         <Style Selector="ListBox#LayerList ListBoxItem">
             <Setter Property="Padding" Value="4,0,0,0" />
             <Setter Property="Margin" Value="0,2" />
-            <Setter Property="MinHeight" Value="48" />
+            <Setter Property="MinHeight" Value="52" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="BorderThickness" Value="2" />
             <Setter Property="CornerRadius" Value="6" />
@@ -26,17 +27,6 @@
             <Setter Property="Background" Value="#E7F0FD" />
             <Setter Property="BorderBrush" Value="#3D78BE" />
             <Setter Property="FontWeight" Value="SemiBold" />
-        </Style>
-        <Style Selector="Button.icon">
-            <Setter Property="MinWidth" Value="48" />
-            <Setter Property="MinHeight" Value="48" />
-        </Style>
-        <Style Selector="Path.layer-icon">
-            <Setter Property="Width" Value="22" />
-            <Setter Property="Height" Value="22" />
-            <Setter Property="Stretch" Value="Uniform" />
-            <Setter Property="Stroke" Value="{Binding $parent[Button].Foreground}" />
-            <Setter Property="StrokeThickness" Value="1.8" />
         </Style>
     </UserControl.Styles>
     <Grid RowDefinitions="Auto,*,Auto,Auto" RowSpacing="4">
@@ -56,13 +46,13 @@
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Шари документа">
             <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="vm:LayerEntry">
-                    <Grid ColumnDefinitions="*,48,48">
+                    <Grid Height="48" ColumnDefinitions="*,48,48">
                         <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                                    ToolTip.Tip="{Binding Name}" Margin="4,0" />
                         <Button Grid.Column="1" Classes="layer-toggle" Classes.off="{Binding !IsVisible}" Tag="{Binding LayerId}"
                                 Click="OnVisibilityClicked" ToolTip.Tip="Показати або приховати локально"
                                 AutomationProperties.Name="{Binding Name, StringFormat='Видимість шару {0}'}">
-                            <Grid Width="22" Height="22">
+                            <Grid>
                                 <Path Classes="layer-icon" Data="M1,12 C6,3 18,3 23,12 C18,21 6,21 1,12 Z M15,12 A3,3 0 1 1 9,12 A3,3 0 1 1 15,12" />
                                 <Path Classes="layer-icon" Data="M2,2 L22,22" IsVisible="{Binding !IsVisible}" />
                             </Grid>
@@ -70,9 +60,9 @@
                         <Button Grid.Column="2" Classes="layer-toggle" Classes.off="{Binding IsLocked}" Tag="{Binding LayerId}"
                                 Click="OnLockClicked" ToolTip.Tip="Блокування редагування на цьому пристрої"
                                 AutomationProperties.Name="{Binding Name, StringFormat='Блокування шару {0}'}">
-                            <Grid Width="22" Height="22">
-                                <Path Classes="layer-icon" Data="M6,10 L18,10 18,22 6,22 Z M8,10 L8,6 C8,0 16,0 16,6 L16,10 M12,14 L12,18" IsVisible="{Binding IsLocked}" />
-                                <Path Classes="layer-icon" Data="M6,10 L18,10 18,22 6,22 Z M8,10 L8,6 C8,0 16,0 16,6 M12,14 L12,18" IsVisible="{Binding !IsLocked}" />
+                            <Grid>
+                                <Path Classes="layer-icon" Data="M5,11 L19,11 19,22 5,22 Z M7,11 L7,8 C7,2 17,2 17,8 L17,11 M12,15 L12,19" IsVisible="{Binding IsLocked}" />
+                                <Path Classes="layer-icon" Data="M5,11 L19,11 19,22 5,22 Z M7,11 L7,8 C7,2 17,2 17,8 M12,15 L12,19" IsVisible="{Binding !IsLocked}" />
                             </Grid>
                         </Button>
                     </Grid>
@@ -82,11 +72,11 @@
         <Grid x:Name="LayerToolbar" Grid.Row="2" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="4">
             <Button x:Name="RaiseLayerButton" Classes="icon secondary" Click="OnRaiseClicked" IsEnabled="{Binding CanRaise}"
                     ToolTip.Tip="Шар вище" AutomationProperties.Name="Шар вище">
-                <Path Classes="layer-icon" Data="M5,12 L12,5 19,12 M12,5 L12,21" />
+                <Path Classes="layer-icon" Data="M5,11 L12,4 19,11 M12,4 L12,20" />
             </Button>
             <Button x:Name="LowerLayerButton" Grid.Column="1" Classes="icon secondary" Click="OnLowerClicked" IsEnabled="{Binding CanLower}"
                     ToolTip.Tip="Шар нижче" AutomationProperties.Name="Шар нижче">
-                <Path Classes="layer-icon" Data="M5,12 L12,19 19,12 M12,3 L12,19" />
+                <Path Classes="layer-icon" Data="M5,13 L12,20 19,13 M12,4 L12,20" />
             </Button>
             <Button x:Name="MoreLayerButton" Grid.Column="3" Classes="icon secondary"
                     ToolTip.Tip="Дії над шаром" AutomationProperties.Name="Дії над шаром">

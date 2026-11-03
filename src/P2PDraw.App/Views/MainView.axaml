@@ -28,35 +28,35 @@
                 <ScrollViewer x:Name="DrawingToolsScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <Button x:Name="SelectTool" Classes="tool" Tag="Select" Click="OnToolClicked" ToolTip.Tip="Вибір і переміщення" AutomationProperties.Name="Вибір і переміщення">
-                            <Path Classes="icon" Data="M3,2 L3,19 8,14 12,22 15,20 11,13 18,12 Z" Fill="{Binding $parent[Button].Foreground}" />
+                            <Path Classes="icon" Data="M5,2 L5,18 9,14 12,22 15,21 12,13 19,13 Z" Fill="{Binding $parent[Button].Foreground}" />
                         </Button>
                         <Button x:Name="BrushTool" Classes="tool selected" Tag="Brush" Click="OnToolClicked" ToolTip.Tip="Пензель" AutomationProperties.Name="Пензель">
-                            <Path Classes="icon" Data="M3,16 L4,12 14,2 18,6 8,16 Z M4,12 L8,16" />
+                            <Path Classes="icon" Data="M4,18 L5,14 15,4 20,9 10,19 6,20 Z M5,14 L10,19 M13,6 L18,11" />
                         </Button>
                         <Button x:Name="LineTool" Classes="tool" Tag="Line" Click="OnToolClicked" ToolTip.Tip="Пряма лінія" AutomationProperties.Name="Пряма лінія">
-                            <Path Classes="icon" Data="M2,20 L20,2" />
+                            <Path Classes="icon" Data="M4,20 L20,4" />
                         </Button>
                         <Button x:Name="RectangleTool" Classes="tool" Tag="Rectangle" Click="OnToolClicked" ToolTip.Tip="Прямокутник" AutomationProperties.Name="Прямокутник">
-                            <Path Classes="icon" Data="M2,3 L20,3 20,19 2,19 Z" />
+                            <Path Classes="icon" Data="M3,4 L21,4 21,20 3,20 Z" />
                         </Button>
                         <Button x:Name="EllipseTool" Classes="tool" Tag="Ellipse" Click="OnToolClicked" ToolTip.Tip="Еліпс" AutomationProperties.Name="Еліпс">
-                            <Path Classes="icon" Data="M2,11 A9,7 0 1 0 20,11 A9,7 0 1 0 2,11" />
+                            <Path Classes="icon" Data="M3,12 A9,7 0 1 0 21,12 A9,7 0 1 0 3,12" />
                         </Button>
                     </StackPanel>
                 </ScrollViewer>
                 <StackPanel x:Name="EditToolsGroup" Grid.Column="1" Orientation="Horizontal" Spacing="4">
                     <Border x:Name="EditSeparator" Width="1" Background="#D7DFEA" Margin="4,6" IsVisible="{Binding !#RootView.Layout.IsNarrow}" />
                     <Button x:Name="DeleteButton" Classes="tool" Click="OnDeleteClicked" IsEnabled="False" ToolTip.Tip="Видалити об'єкт" AutomationProperties.Name="Видалити об'єкт">
-                        <Path Classes="icon" Data="M3,5 L19,5 M8,5 L8,2 14,2 14,5 M5,5 L6,21 16,21 17,5 M9,9 L9,17 M13,9 L13,17" />
+                        <Path Classes="icon" Data="M4,6 L20,6 M8,6 L8,3 16,3 16,6 M6,6 L7,21 17,21 18,6 M10,10 L10,17 M14,10 L14,17" />
                     </Button>
                     <Button x:Name="DuplicateButton" Classes="tool" Click="OnDuplicateClicked" IsEnabled="False" ToolTip.Tip="Дублювати об'єкт" AutomationProperties.Name="Дублювати об'єкт">
-                        <Path Classes="icon" Data="M7,7 L20,7 20,20 7,20 Z M3,15 L3,3 15,3" />
+                        <Path Classes="icon" Data="M8,8 L20,8 20,20 8,20 Z M4,16 L4,4 16,4" />
                     </Button>
                     <Button x:Name="UndoButton" Classes="tool" Click="OnUndoClicked" IsEnabled="{Binding CanUndo}" ToolTip.Tip="Скасувати локальну дію" AutomationProperties.Name="Скасувати локальну дію">
-                        <Path Classes="icon" Data="M9,4 L3,10 9,16 M3,10 L13,10 C22,10 22,21 13,21" />
+                        <Path Classes="icon" Data="M10,5 L4,11 10,17 M4,11 L13,11 C17,11 20,14 20,19" />
                     </Button>
                     <Button x:Name="RedoButton" Classes="tool" Click="OnRedoClicked" IsEnabled="{Binding CanRedo}" ToolTip.Tip="Повторити локальну дію" AutomationProperties.Name="Повторити локальну дію">
-                        <Path Classes="icon" Data="M13,4 L19,10 13,16 M19,10 L9,10 C0,10 0,21 9,21" />
+                        <Path Classes="icon" Data="M14,5 L20,11 14,17 M20,11 L11,11 C7,11 4,14 4,19" />
                     </Button>
                 </StackPanel>
                 <StackPanel x:Name="PropertiesGroup" Grid.Column="2" Orientation="{Binding #RootView.Layout.PropertiesOrientation}" Spacing="8">
@@ -104,7 +104,7 @@
                     <Path Classes="icon" Data="M3,6 L21,6 M3,12 L21,12 M3,18 L21,18 M8,3 L8,9 M16,9 L16,15 M10,15 L10,21" />
                 </Button>
                 <Button x:Name="MoreToolsButton" Grid.Column="4" Classes="tool" Click="OnMoreToolsClicked" IsVisible="{Binding #RootView.Layout.IsNarrow}" ToolTip.Tip="Редагування об'єктів" AutomationProperties.Name="Редагування об'єктів">
-                    <Path Classes="icon" Data="M4,11 L4,13 M12,11 L12,13 M20,11 L20,13" StrokeLineCap="Round" />
+                    <Path Classes="icon" Data="M4,11 L4,13 M12,11 L12,13 M20,11 L20,13" />
                 </Button>
             </Grid>
         </Border>
@@ -204,7 +204,7 @@
             <TextBlock x:Name="ObjectCountText" Grid.Column="1" Text="{Binding ObjectCount, StringFormat='{}{0} об.'}" Classes="label" VerticalAlignment="Center" ToolTip.Tip="Кількість об'єктів" />
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                 <Button x:Name="ZoomOutButton" Classes="icon secondary" Click="OnZoomOutClicked" ToolTip.Tip="Зменшити масштаб" AutomationProperties.Name="Зменшити масштаб">
-                    <Rectangle Width="18" Height="2" Fill="{Binding $parent[Button].Foreground}" />
+                    <Path Classes="icon" Data="M4,12 L20,12" />
                 </Button>
                 <Button x:Name="ResetZoomButton" Content="100%" Classes="secondary" MinWidth="60" Click="OnResetViewClicked" ToolTip.Tip="Повернути масштаб 100% і центр полотна" AutomationProperties.Name="Скинути масштаб" />
                 <Button x:Name="ZoomInButton" Classes="icon secondary" Click="OnZoomInClicked" ToolTip.Tip="Збільшити масштаб" AutomationProperties.Name="Збільшити масштаб">

@@ -3,16 +3,104 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using P2PDraw.App.ViewModels;
 using P2PDraw.App.Views;
+using IconPath = Avalonia.Controls.Shapes.Path;
 using Xunit;
 
 namespace P2PDraw.Tests.App;
 
 public partial class EditorTests
 {
+    [Fact]
+    public async Task LayerRowsUseMatchingHeightAndCenteredIconButtons()
+    {
+        await using var session = HeadlessUnitTestSession.StartNew(typeof(EditorTests));
+        await session.Dispatch(async () =>
+        {
+            await using var model = new MainWindowViewModel();
+            model.LayerEditor.AddLayer();
+            var firstLayer = model.LayerEditor.Layers[0];
+            model.LayerEditor.ToggleVisibility(firstLayer.LayerId);
+            model.LayerEditor.ToggleLock(firstLayer.LayerId);
+
+            var panel = new LayersPanel { DataContext = model.LayerEditor };
+            var window = new Window { Content = panel, Width = 280, Height = 500 };
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                var list = panel.FindControl<ListBox>("LayerList")!;
+                Assert.Equal(2, list.ItemCount);
+
+                for (int index = 0; index < list.ItemCount; index++)
+                {
+                    var row = Assert.IsType<ListBoxItem>(list.ContainerFromIndex(index));
+                    Assert.Equal(52, row.Bounds.Height);
+                    Assert.Equal(new Thickness(2), row.BorderThickness);
+
+                    var buttons = row.GetVisualDescendants().OfType<Button>().ToArray();
+                    Assert.Equal(2, buttons.Length);
+
+                    foreach (var button in buttons)
+                    {
+                        Assert.Equal(new Size(48, 48), button.Bounds.Size);
+                        Assert.Equal(HorizontalAlignment.Center, button.HorizontalContentAlignment);
+                        Assert.Equal(VerticalAlignment.Center, button.VerticalContentAlignment);
+                        Assert.Equal(new Thickness(1), button.BorderThickness);
+
+                        var iconGrid = Assert.IsType<Grid>(button.Content);
+                        Assert.Equal(new Size(24, 24), iconGrid.Bounds.Size);
+                        Point iconPosition = iconGrid.TranslatePoint(default, button)!.Value;
+                        Assert.Equal(12, iconPosition.X);
+                        Assert.Equal(12, iconPosition.Y);
+
+                        foreach (var icon in button.GetVisualDescendants().OfType<IconPath>())
+                        {
+                            Assert.Equal(24, icon.Width);
+                            Assert.Equal(24, icon.Height);
+                            Assert.Equal(Stretch.None, icon.Stretch);
+                            Assert.Equal(12, icon.Data!.Bounds.Center.X);
+                            Assert.Equal(12, icon.Data.Bounds.Center.Y);
+                        }
+                    }
+                }
+
+                string[] layerIconButtonNames =
+                ["AddLayerButton", "CloseLayersButton", "RaiseLayerButton", "LowerLayerButton", "MoreLayerButton"];
+
+                foreach (string name in layerIconButtonNames)
+                {
+                    var button = panel.FindControl<Button>(name)!;
+                    var icon = Assert.IsType<IconPath>(button.Content);
+
+                    Assert.Equal(new Size(48, 48), button.Bounds.Size);
+                    Assert.Equal(HorizontalAlignment.Center, button.HorizontalContentAlignment);
+                    Assert.Equal(VerticalAlignment.Center, button.VerticalContentAlignment);
+                    Assert.Equal(24, icon.Width);
+                    Assert.Equal(24, icon.Height);
+                    Assert.Equal(Stretch.None, icon.Stretch);
+                    Assert.Equal(12, icon.Data!.Bounds.Center.X);
+                    Assert.Equal(12, icon.Data.Bounds.Center.Y);
+
+                    Point iconPosition = icon.TranslatePoint(default, button)!.Value;
+                    Assert.Equal(12, iconPosition.X);
+                    Assert.Equal(12, iconPosition.Y);
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+            return true;
+        }, TestContext.Current.CancellationToken);
+    }
+
     [Fact]
     public async Task HeaderAddSelectsNewLayerAndRemoteRefreshKeepsActiveRow()
     {
