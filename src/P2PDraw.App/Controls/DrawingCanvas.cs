@@ -110,17 +110,16 @@ public sealed class DrawingCanvas : Control
     private Point lastPanPoint;
     private Point touchStart;
     private readonly Dictionary<IPointer, Point> touches = [];
+    private readonly CanvasViewport viewport = new();
     private bool strokeStarted;
     private bool navigatingTouch;
-    private Point gestureCenter;
-    private double gestureDistance;
 
     public event Action<StrokePoint>? StrokeStarted;
     public event Action<StrokePoint>? StrokeContinued;
     public event Action? StrokeFinished;
     public event Action? ViewChanged;
-    public double Zoom { get; private set; } = 1;
-    public Vector Pan { get; private set; }
+    public double Zoom => viewport.Zoom;
+    public Vector Pan => viewport.Pan;
 
     public IReadOnlyList<Stroke>? Strokes
     {
@@ -138,6 +137,11 @@ public sealed class DrawingCanvas : Control
         Focusable = true;
         ClipToBounds = true;
         Cursor = new Cursor(StandardCursorType.Cross);
+        viewport.Changed += () =>
+        {
+            InvalidateVisual();
+            ViewChanged?.Invoke();
+        };
     }
 
     public override void Render(DrawingContext context)
@@ -421,39 +425,11 @@ public sealed class DrawingCanvas : Control
         eventArgs.Handled = true;
     }
 
-    public StrokePoint ScreenToDocument(Point point) => new((point.X - Pan.X) / Zoom, (point.Y - Pan.Y) / Zoom);
-    public Point DocumentToScreen(StrokePoint point) => new(point.X * Zoom + Pan.X, point.Y * Zoom + Pan.Y);
-
-    public void ZoomAt(double factor, Point anchor)
-    {
-        if (!double.IsFinite(factor) || factor <= 0 || !double.IsFinite(anchor.X) || !double.IsFinite(anchor.Y))
-        {
-            throw new ArgumentOutOfRangeException(nameof(factor));
-        }
-        var documentPoint = ScreenToDocument(anchor);
-        double nextZoom = Math.Clamp(Zoom * factor, 0.1, 8);
-        var nextPan = new Vector(anchor.X - documentPoint.X * nextZoom, anchor.Y - documentPoint.Y * nextZoom);
-        SetView(nextZoom, nextPan);
-    }
-
-    public void PanBy(Vector delta) => SetView(Zoom, Pan + delta);
-    public void ResetView() => SetView(1, default);
-
-    private void SetView(double zoom, Vector pan)
-    {
-        if (!double.IsFinite(pan.X) || !double.IsFinite(pan.Y))
-        {
-            throw new ArgumentOutOfRangeException(nameof(pan));
-        }
-        if (Zoom == zoom && Pan == pan)
-        {
-            return;
-        }
-        Zoom = zoom;
-        Pan = pan;
-        InvalidateVisual();
-        ViewChanged?.Invoke();
-    }
+    public StrokePoint ScreenToDocument(Point point) => viewport.ScreenToDocument(point);
+    public Point DocumentToScreen(StrokePoint point) => viewport.DocumentToScreen(point);
+    public void ZoomAt(double factor, Point anchor) => viewport.ZoomAt(factor, anchor);
+    public void PanBy(Vector delta) => viewport.PanBy(delta);
+    public void ResetView() => viewport.ResetView();
 
     private void UpdateTouchView(bool initialize)
     {
@@ -462,18 +438,7 @@ public sealed class DrawingCanvas : Control
         {
             return;
         }
-        var center = new Point((positions[0].X + positions[1].X) / 2, (positions[0].Y + positions[1].Y) / 2);
-        Vector separation = positions[0] - positions[1];
-        double distance = separation.Length;
-        if (!initialize && gestureDistance > 1 && distance > 1)
-        {
-            var documentPoint = ScreenToDocument(gestureCenter);
-            double nextZoom = Math.Clamp(Zoom * distance / gestureDistance, 0.1, 8);
-            var nextPan = new Vector(center.X - documentPoint.X * nextZoom, center.Y - documentPoint.Y * nextZoom);
-            SetView(nextZoom, nextPan);
-        }
-        gestureCenter = center;
-        gestureDistance = distance;
+        viewport.UpdateTouchGesture(positions[0], positions[1], initialize);
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
