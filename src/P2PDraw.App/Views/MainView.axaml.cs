@@ -3,7 +3,6 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Input;
 using Avalonia.Media;
-using Avalonia.Layout;
 using System.ComponentModel;
 using Avalonia.VisualTree;
 using P2PDraw.App.Controls;
@@ -16,12 +15,12 @@ namespace P2PDraw.App.Views;
 
 public partial class MainView : UserControl
 {
-    private bool? wideLayout;
-    private string? activePanel = "Шари";
     private TopLevel? topLevel;
     private MainWindowViewModel? observedModel;
     private Func<Task>? confirmedAction;
     private bool restoreControlsAfterLayout;
+
+    public EditorLayout Layout { get; } = new();
 
     public MainView()
     {
@@ -51,7 +50,7 @@ public partial class MainView : UserControl
                     _ => "штрих"
                 };
                 SelectionInfo.Text = selected is null ? "" : $"Вибрано: {name}";
-                SelectionInfo.IsVisible = selected is not null && Bounds.Width >= 850;
+                Layout.SetSelection(selected is not null);
             }
             UpdateToolProperties();
         };
@@ -67,7 +66,7 @@ public partial class MainView : UserControl
             SaveProjectButton.IsEnabled = storage?.CanSave == true;
             OpenProjectButton.IsEnabled = storage?.CanOpen == true;
         };
-        BodyGrid.SizeChanged += (_, _) => UpdatePanelLayout();
+        BodyGrid.SizeChanged += (_, _) => Layout.UpdateBodyWidth(BodyGrid.Bounds.Width);
         LayoutUpdated += OnLayoutUpdated;
     }
 
@@ -78,53 +77,28 @@ public partial class MainView : UserControl
 
     private void UpdateLayoutMode(Size size)
     {
-        bool shortScreen = size.Height < 600;
-        bool wide = size.Width >= 1000 && !shortScreen;
-        bool narrow = size.Width < 600;
-        bool inlineProperties = size.Width >= 1100 && !shortScreen && FontSize <= 16;
-        RootGrid.Margin = new Thickness(shortScreen ? 4 : 8);
-        RootGrid.RowSpacing = shortScreen ? 2 : 6;
-        BrushPanel.Padding = new Thickness(shortScreen ? 2 : 4);
-        BrandPanel.IsVisible = !narrow;
-        ConnectionStatusText.IsVisible = size.Width >= 850;
-        PropertiesButton.IsVisible = !inlineProperties;
-        MoreToolsButton.IsVisible = narrow;
-        EditSeparator.IsVisible = !narrow;
-        PropertiesSeparator.IsVisible = inlineProperties;
-        SelectionInfo.IsVisible = DrawingSurface.SelectedObjectId is not null && size.Width >= 850;
-
-        if (narrow && EditToolsGroup.Parent == ToolbarGrid)
+        Layout.SetSelection(DrawingSurface.SelectedObjectId is not null);
+        Layout.Update(size, FontSize);
+        if (Layout.IsNarrow && EditToolsGroup.Parent == ToolbarGrid)
         {
             ToolbarGrid.Children.Remove(EditToolsGroup);
             EditingHost.Children.Add(EditToolsGroup);
         }
-        else if (!narrow && EditToolsGroup.Parent == EditingHost)
+        else if (!Layout.IsNarrow && EditToolsGroup.Parent == EditingHost)
         {
             EditingHost.Children.Remove(EditToolsGroup);
             ToolbarGrid.Children.Add(EditToolsGroup);
         }
-        if (!inlineProperties && PropertiesGroup.Parent == ToolbarGrid)
+        if (!Layout.InlineProperties && PropertiesGroup.Parent == ToolbarGrid)
         {
             ToolbarGrid.Children.Remove(PropertiesGroup);
             PropertiesHost.Children.Add(PropertiesGroup);
         }
-        else if (inlineProperties && PropertiesGroup.Parent == PropertiesHost)
+        else if (Layout.InlineProperties && PropertiesGroup.Parent == PropertiesHost)
         {
             PropertiesHost.Children.Remove(PropertiesGroup);
             ToolbarGrid.Children.Add(PropertiesGroup);
         }
-        PropertiesGroup.Orientation = inlineProperties ? Orientation.Horizontal : Orientation.Vertical;
-        if (wideLayout != wide)
-        {
-            // A temporary panel must not appear just because the window became smaller.
-            activePanel = wide ? "Шари" : null;
-            wideLayout = wide;
-        }
-        if (activePanel == "Властивості" && inlineProperties || activePanel == "Редагування" && !narrow)
-        {
-            activePanel = null;
-        }
-        UpdatePanelLayout();
         restoreControlsAfterLayout = true;
     }
 
@@ -158,45 +132,16 @@ public partial class MainView : UserControl
         }
     }
 
-    private void UpdatePanelLayout()
-    {
-        bool wide = wideLayout == true;
-        bool open = activePanel is not null;
-        SidePanel.IsVisible = open;
-        PanelBackdrop.IsVisible = open && !wide;
-        Grid.SetColumn(SidePanel, wide ? 1 : 0);
-        Grid.SetColumnSpan(SidePanel, wide ? 1 : 2);
-        SidePanel.HorizontalAlignment = HorizontalAlignment.Right;
-        SidePanel.Width = wide ? 280 : Math.Max(0, Math.Min(360, BodyGrid.Bounds.Width - 8));
-        SidePanel.Margin = new Thickness(wide ? 8 : 0, 0, 0, 0);
-        PanelTitle.Text = activePanel;
-        LayerSide.IsVisible = activePanel == "Шари";
-        NetworkPanel.IsVisible = activePanel == "Сесія";
-        FilesPanel.IsVisible = activePanel == "Файл";
-        PanelHeader.IsVisible = !LayerSide.IsVisible;
-        PropertiesPanel.IsVisible = activePanel == "Властивості";
-        EditingPanel.IsVisible = activePanel == "Редагування";
-        FilesButton.Classes.Set("selected", FilesPanel.IsVisible);
-        LayersButton.Classes.Set("selected", LayerSide.IsVisible);
-        SessionButton.Classes.Set("selected", NetworkPanel.IsVisible);
-        bool reducedViewport = open && Bounds.Height < 320;
-        BrushPanel.IsVisible = !reducedViewport;
-        FooterGrid.IsVisible = !reducedViewport;
-        ConfirmationScroll.MaxHeight = Math.Max(0, Bounds.Height - 72);
-    }
-
     private void TogglePanel(string name)
     {
         LayerSide.CloseMenu();
-        activePanel = activePanel == name ? null : name;
-        UpdatePanelLayout();
+        Layout.Toggle(name);
     }
 
     private void ClosePanel()
     {
         LayerSide.CloseMenu();
-        activePanel = null;
-        UpdatePanelLayout();
+        Layout.Close();
     }
 
     public bool TryClosePanel()
@@ -210,7 +155,7 @@ public partial class MainView : UserControl
         {
             return true;
         }
-        if (activePanel is null)
+        if (Layout.ActivePanel is null)
         {
             return false;
         }

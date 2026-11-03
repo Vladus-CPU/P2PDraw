@@ -4,25 +4,26 @@
              xmlns:vm="using:P2PDraw.App.ViewModels"
              xmlns:discovery="using:P2PDraw.Networking.Discovery"
              xmlns:views="using:P2PDraw.App.Views"
-             x:Class="P2PDraw.App.Views.MainView" x:DataType="vm:MainWindowViewModel"
+             x:Class="P2PDraw.App.Views.MainView" x:DataType="vm:MainWindowViewModel" x:Name="RootView"
              Background="#EEF1F5" TopLevel.AutoSafeAreaPadding="True" UseLayoutRounding="True">
-    <Grid x:Name="RootGrid" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="6" Margin="12">
+    <Grid x:Name="RootGrid" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="{Binding #RootView.Layout.RowSpacing}" Margin="{Binding #RootView.Layout.RootMargin}">
         <Grid x:Name="HeaderGrid" ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="8">
-            <StackPanel x:Name="BrandPanel" Spacing="1" VerticalAlignment="Center">
+            <StackPanel x:Name="BrandPanel" Spacing="1" VerticalAlignment="Center" IsVisible="{Binding #RootView.Layout.ShowBrand}">
                 <TextBlock x:Name="AppTitle" Text="P2PDraw" FontSize="20" FontWeight="SemiBold" Foreground="#253449" />
                 <TextBlock x:Name="SessionTitle" Text="{Binding SessionTitle}" Classes="label" TextTrimming="CharacterEllipsis" MaxWidth="220" />
             </StackPanel>
-            <Button x:Name="FilesButton" Grid.Column="1" Content="Файл" Classes="secondary" Click="OnFilesClicked" />
+            <Button x:Name="FilesButton" Grid.Column="1" Content="Файл" Classes="secondary" Classes.selected="{Binding #RootView.Layout.ShowFiles}" Click="OnFilesClicked" />
             <StackPanel x:Name="ConnectionSummary" Grid.Column="2" Spacing="1" VerticalAlignment="Center" HorizontalAlignment="Right" MaxWidth="220">
-                <TextBlock x:Name="ConnectionStatusText" Text="{Binding ConnectionStatus}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="ConnectionStatusText" Text="{Binding ConnectionStatus}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" IsVisible="{Binding #RootView.Layout.ShowDetails}" />
                 <TextBlock Text="{Binding ConnectedPeers, StringFormat='{}{0} уч.'}" Classes="label" />
             </StackPanel>
             <Border x:Name="ConnectionIndicator" Grid.Column="3" Width="10" Height="10" CornerRadius="5" Background="#94A3B8" VerticalAlignment="Center"
                     ToolTip.Tip="{Binding ConnectionStatus}" AutomationProperties.Name="{Binding ConnectionStatus}" />
-            <Button x:Name="LayersButton" Grid.Column="4" Content="Шари" Classes="secondary" Click="OnLayersClicked" />
-            <Button x:Name="SessionButton" Grid.Column="5" Content="Сесія" Classes="secondary" Click="OnSessionClicked" ToolTip.Tip="Створення сесії та підключення" />
+            <Button x:Name="LayersButton" Grid.Column="4" Content="Шари" Classes="secondary" Classes.selected="{Binding #RootView.Layout.ShowLayers}" Click="OnLayersClicked" />
+            <Button x:Name="SessionButton" Grid.Column="5" Content="Сесія" Classes="secondary" Classes.selected="{Binding #RootView.Layout.ShowSession}" Click="OnSessionClicked" ToolTip.Tip="Створення сесії та підключення" />
         </Grid>
-        <Border x:Name="BrushPanel" Grid.Row="1" Background="White" CornerRadius="8" BorderBrush="#D7DFEA" BorderThickness="1" Padding="6">
+        <Border x:Name="BrushPanel" Grid.Row="1" Background="White" CornerRadius="8" BorderBrush="#D7DFEA" BorderThickness="1"
+                Padding="{Binding #RootView.Layout.ToolbarPadding}" IsVisible="{Binding #RootView.Layout.ShowToolbarAndFooter}">
             <Grid x:Name="ToolbarGrid" ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="6">
                 <ScrollViewer x:Name="DrawingToolsScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                     <StackPanel Orientation="Horizontal" Spacing="4">
@@ -44,7 +45,7 @@
                     </StackPanel>
                 </ScrollViewer>
                 <StackPanel x:Name="EditToolsGroup" Grid.Column="1" Orientation="Horizontal" Spacing="4">
-                    <Border x:Name="EditSeparator" Width="1" Background="#D7DFEA" Margin="4,6" />
+                    <Border x:Name="EditSeparator" Width="1" Background="#D7DFEA" Margin="4,6" IsVisible="{Binding !#RootView.Layout.IsNarrow}" />
                     <Button x:Name="DeleteButton" Classes="tool" Click="OnDeleteClicked" IsEnabled="False" ToolTip.Tip="Видалити об'єкт" AutomationProperties.Name="Видалити об'єкт">
                         <Path Classes="icon" Data="M3,5 L19,5 M8,5 L8,2 14,2 14,5 M5,5 L6,21 16,21 17,5 M9,9 L9,17 M13,9 L13,17" />
                     </Button>
@@ -58,8 +59,8 @@
                         <Path Classes="icon" Data="M13,4 L19,10 13,16 M19,10 L9,10 C0,10 0,21 9,21" />
                     </Button>
                 </StackPanel>
-                <StackPanel x:Name="PropertiesGroup" Grid.Column="2" Orientation="Horizontal" Spacing="8">
-                    <Border x:Name="PropertiesSeparator" Width="1" Background="#D7DFEA" Margin="4,6" />
+                <StackPanel x:Name="PropertiesGroup" Grid.Column="2" Orientation="{Binding #RootView.Layout.PropertiesOrientation}" Spacing="8">
+                    <Border x:Name="PropertiesSeparator" Width="1" Background="#D7DFEA" Margin="4,6" IsVisible="{Binding #RootView.Layout.InlineProperties}" />
                     <ComboBox x:Name="BrushColors" Width="136" SelectedIndex="0" SelectionChanged="OnColorChanged" ToolTip.Tip="Колір контуру" AutomationProperties.Name="Колір контуру">
                         <ComboBoxItem Tag="#FF253449">
                             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -99,10 +100,10 @@
                     </StackPanel>
                     <CheckBox x:Name="FillSetting" Content="Заливка" IsChecked="{Binding FillShapes, Mode=TwoWay}" />
                 </StackPanel>
-                <Button x:Name="PropertiesButton" Grid.Column="3" Classes="tool" Click="OnPropertiesClicked" IsVisible="False" ToolTip.Tip="Колір і властивості" AutomationProperties.Name="Колір і властивості">
+                <Button x:Name="PropertiesButton" Grid.Column="3" Classes="tool" Click="OnPropertiesClicked" IsVisible="{Binding !#RootView.Layout.InlineProperties}" ToolTip.Tip="Колір і властивості" AutomationProperties.Name="Колір і властивості">
                     <Path Classes="icon" Data="M3,6 L21,6 M3,12 L21,12 M3,18 L21,18 M8,3 L8,9 M16,9 L16,15 M10,15 L10,21" />
                 </Button>
-                <Button x:Name="MoreToolsButton" Grid.Column="4" Classes="tool" Click="OnMoreToolsClicked" IsVisible="False" ToolTip.Tip="Редагування об'єктів" AutomationProperties.Name="Редагування об'єктів">
+                <Button x:Name="MoreToolsButton" Grid.Column="4" Classes="tool" Click="OnMoreToolsClicked" IsVisible="{Binding #RootView.Layout.IsNarrow}" ToolTip.Tip="Редагування об'єктів" AutomationProperties.Name="Редагування об'єктів">
                     <Path Classes="icon" Data="M4,11 L4,13 M12,11 L12,13 M20,11 L20,13" StrokeLineCap="Round" />
                 </Button>
             </Grid>
@@ -114,19 +115,21 @@
                                         CanDraw="{Binding LayerEditor.CanDraw}" StrokeColor="{Binding BrushColor}"
                                         StrokeWidth="{Binding BrushWidth}" FillShapes="{Binding FillShapes}" />
             </Border>
-            <Button x:Name="PanelBackdrop" Classes="backdrop" Grid.ColumnSpan="2" IsVisible="False" Click="OnClosePanelClicked" Background="#330F172A"
+            <Button x:Name="PanelBackdrop" Classes="backdrop" Grid.ColumnSpan="2" IsVisible="{Binding #RootView.Layout.ShowBackdrop}" Click="OnClosePanelClicked" Background="#330F172A"
                     BorderThickness="0" Padding="0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" AutomationProperties.Name="Закрити панель" />
-            <Border x:Name="SidePanel" Grid.Column="1" Width="280" Margin="8,0,0,0" Padding="10" Background="White"
+            <Border x:Name="SidePanel" Grid.Column="{Binding #RootView.Layout.PanelColumn}" Grid.ColumnSpan="{Binding #RootView.Layout.PanelColumnSpan}"
+                    Width="{Binding #RootView.Layout.PanelWidth}" Margin="{Binding #RootView.Layout.PanelMargin}" IsVisible="{Binding #RootView.Layout.ShowPanel}"
+                    HorizontalAlignment="Right" Padding="10" Background="White"
                     BorderBrush="#CCD5E1" BorderThickness="1" CornerRadius="8">
                 <Grid RowDefinitions="Auto,*" RowSpacing="8">
-                    <Grid x:Name="PanelHeader" ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                        <TextBlock x:Name="PanelTitle" Text="Шари" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Grid x:Name="PanelHeader" ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="{Binding #RootView.Layout.ShowPanelHeader}">
+                        <TextBlock x:Name="PanelTitle" Text="{Binding #RootView.Layout.ActivePanel}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
                         <Button x:Name="ClosePanelButton" Grid.Column="1" Classes="icon secondary" Click="OnClosePanelClicked" ToolTip.Tip="Закрити панель" AutomationProperties.Name="Закрити панель">
                             <Path Classes="icon" Data="M5,5 L19,19 M19,5 L5,19" />
                         </Button>
                     </Grid>
-                    <views:LayersPanel x:Name="LayerSide" Grid.Row="1" DataContext="{Binding LayerEditor}" />
-                    <Border x:Name="NetworkPanel" Grid.Row="1" IsVisible="False">
+                    <views:LayersPanel x:Name="LayerSide" Grid.Row="1" DataContext="{Binding LayerEditor}" IsVisible="{Binding #RootView.Layout.ShowLayers}" />
+                    <Border x:Name="NetworkPanel" Grid.Row="1" IsVisible="{Binding #RootView.Layout.ShowSession}">
                         <ScrollViewer x:Name="NetworkScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                             <StackPanel Spacing="8" Margin="0,8,0,0">
                                 <TextBlock Text="{Binding SessionTitle}" FontWeight="SemiBold" TextWrapping="Wrap" />
@@ -169,7 +172,7 @@
                             </StackPanel>
                         </ScrollViewer>
                     </Border>
-                    <Border x:Name="FilesPanel" Grid.Row="1" IsVisible="False">
+                    <Border x:Name="FilesPanel" Grid.Row="1" IsVisible="{Binding #RootView.Layout.ShowFiles}">
                         <ScrollViewer x:Name="FileScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel Spacing="8">
                                 <Button x:Name="SaveProjectButton" Content="Зберегти проєкт" Classes="primary" Click="OnSaveProjectClicked" HorizontalAlignment="Stretch" />
@@ -184,19 +187,19 @@
                             </StackPanel>
                         </ScrollViewer>
                     </Border>
-                    <ScrollViewer x:Name="PropertiesPanel" Grid.Row="1" IsVisible="False" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <ScrollViewer x:Name="PropertiesPanel" Grid.Row="1" IsVisible="{Binding #RootView.Layout.ShowProperties}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <StackPanel x:Name="PropertiesHost" Spacing="12" />
                     </ScrollViewer>
-                    <ScrollViewer x:Name="EditingPanel" Grid.Row="1" IsVisible="False" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <ScrollViewer x:Name="EditingPanel" Grid.Row="1" IsVisible="{Binding #RootView.Layout.ShowEditing}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <StackPanel x:Name="EditingHost" Spacing="8" />
                     </ScrollViewer>
                 </Grid>
             </Border>
         </Grid>
-        <Grid x:Name="FooterGrid" Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+        <Grid x:Name="FooterGrid" Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" IsVisible="{Binding #RootView.Layout.ShowToolbarAndFooter}">
             <StackPanel VerticalAlignment="Center">
                 <TextBlock x:Name="StatusText" Text="{Binding Status}" Classes="label" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Status}" />
-                <TextBlock x:Name="SelectionInfo" Classes="label" IsVisible="False" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="SelectionInfo" Classes="label" IsVisible="{Binding #RootView.Layout.ShowSelection}" TextTrimming="CharacterEllipsis" />
             </StackPanel>
             <TextBlock x:Name="ObjectCountText" Grid.Column="1" Text="{Binding ObjectCount, StringFormat='{}{0} об.'}" Classes="label" VerticalAlignment="Center" ToolTip.Tip="Кількість об'єктів" />
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
@@ -211,7 +214,7 @@
         </Grid>
         <Border x:Name="ConfirmationOverlay" Grid.RowSpan="4" Background="#660F172A" IsVisible="False">
             <Border x:Name="ConfirmationDialog" Background="White" CornerRadius="10" Padding="16" Margin="8" MaxWidth="400" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <ScrollViewer x:Name="ConfirmationScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ScrollViewer x:Name="ConfirmationScroll" MaxHeight="{Binding #RootView.Layout.ConfirmationMaxHeight}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Spacing="16">
                         <TextBlock x:Name="ConfirmationText" TextWrapping="Wrap" />
                         <WrapPanel Orientation="Horizontal" HorizontalAlignment="Right">
