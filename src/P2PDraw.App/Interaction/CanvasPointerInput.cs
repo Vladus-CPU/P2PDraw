@@ -1,7 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
-using P2PDraw.App.Controls;
 using P2PDraw.Core.Models;
 
 namespace P2PDraw.App.Interaction;

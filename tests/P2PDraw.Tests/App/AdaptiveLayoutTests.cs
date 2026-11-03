@@ -8,6 +8,7 @@ using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using P2PDraw.App.Controls;
+using P2PDraw.App.Interaction;
 using P2PDraw.App.ViewModels;
 using P2PDraw.App.Views;
 using Xunit;

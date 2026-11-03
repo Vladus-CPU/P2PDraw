@@ -1,5 +1,4 @@
 using Avalonia;
-using P2PDraw.App.Controls;
 using P2PDraw.App.Interaction;
 using P2PDraw.Core.Models;
 using P2PDraw.Core.Sync;

@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using P2PDraw.App.Controls;
+using P2PDraw.App.Interaction;
 using P2PDraw.Core.Models;
 using P2PDraw.Core.Operations;
 using Xunit;
@@ -25,7 +26,10 @@ public partial class EditorTests
         {
             var stamp = new OperationStamp(Guid.NewGuid(), Guid.NewGuid(), 1, 1);
             var shape = new Shape(Guid.NewGuid(), stamp.PeerId, kind, new(30, 40), new(90, 100),
-                0xFF112233, 4, stamp, 0xFF223344) { Offset = new(5, 7) };
+                0xFF112233, 4, stamp, 0xFF223344)
+            {
+                Offset = new(5, 7)
+            };
             var canvas = new DrawingCanvas { Shapes = [shape], Tool = DrawingTool.Select };
             var changes = new List<Shape>();
             int moves = 0;
@@ -131,7 +135,10 @@ public partial class EditorTests
     {
         var stamp = new OperationStamp(Guid.NewGuid(), Guid.NewGuid(), 1, 1);
         var shape = new Shape(Guid.NewGuid(), stamp.PeerId, ShapeKind.Rectangle,
-            new(80, 90), new(20, 30), 0, 2, stamp) { Offset = new(-3, 5) };
+            new(80, 90), new(20, 30), 0, 2, stamp)
+        {
+            Offset = new(-3, 5)
+        };
         var handles = CanvasGeometry.GetResizeHandles(shape);
         Assert.Equal(new StrokePoint[] { new(17, 35), new(77, 35), new(77, 95), new(17, 95) }, handles);
         for (int index = 0; index < handles.Length; index++)

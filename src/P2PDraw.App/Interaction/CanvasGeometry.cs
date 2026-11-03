@@ -1,7 +1,7 @@
 using Avalonia;
 using P2PDraw.Core.Models;
 
-namespace P2PDraw.App.Controls;
+namespace P2PDraw.App.Interaction;
 
 public static class CanvasGeometry
 {

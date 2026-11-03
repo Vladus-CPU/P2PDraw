@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using P2PDraw.App.Controls;
+using P2PDraw.App.Interaction;
 using P2PDraw.App.ViewModels;
 using P2PDraw.App.Views;
 using P2PDraw.Core.Models;

@@ -8,15 +8,6 @@ using P2PDraw.Core.Models;
 
 namespace P2PDraw.App.Controls;
 
-public enum DrawingTool
-{
-    Select,
-    Brush,
-    Line,
-    Rectangle,
-    Ellipse
-}
-
 public sealed class DrawingCanvas : Control
 {
     public static readonly StyledProperty<IReadOnlyList<Stroke>?> StrokesProperty =

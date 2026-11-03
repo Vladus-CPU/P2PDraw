@@ -1,8 +1,16 @@
 using Avalonia;
-using P2PDraw.App.Controls;
 using P2PDraw.Core.Models;
 
 namespace P2PDraw.App.Interaction;
+
+public enum DrawingTool
+{
+    Select,
+    Brush,
+    Line,
+    Rectangle,
+    Ellipse
+}
 
 public sealed class CanvasInteraction
 {

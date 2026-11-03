@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using P2PDraw.App.Controls;
+using P2PDraw.App.Interaction;
 using P2PDraw.Core.Models;
 using P2PDraw.Core.Operations;
 using Xunit;
@@ -21,14 +22,19 @@ public partial class EditorTests
             Guid upperLayer = Guid.NewGuid();
             var stamp = new OperationStamp(Guid.NewGuid(), Guid.NewGuid(), 1, 1);
             var shape = new Shape(Guid.NewGuid(), stamp.PeerId, ShapeKind.Rectangle, new(20, 20), new(80, 80),
-                0, 2, stamp, 0xFF112233) { LayerId = lowerLayer };
+                0, 2, stamp, 0xFF112233)
+            {
+                LayerId = lowerLayer
+            };
             var stroke = new Stroke(Guid.NewGuid(), stamp.PeerId, 0, 4, stamp, [new(20, 20), new(80, 80)], true)
             {
                 LayerId = upperLayer
             };
             var canvas = new DrawingCanvas
             {
-                Shapes = [shape], Strokes = [stroke], VisibleLayerIds = [lowerLayer, upperLayer],
+                Shapes = [shape],
+                Strokes = [stroke],
+                VisibleLayerIds = [lowerLayer, upperLayer],
                 SelectableLayerIds = new HashSet<Guid> { lowerLayer, upperLayer }
             };
 
@@ -56,10 +62,15 @@ public partial class EditorTests
             Guid layerId = Guid.NewGuid();
             var stamp = new OperationStamp(Guid.NewGuid(), Guid.NewGuid(), 1, 1);
             var shape = new Shape(Guid.NewGuid(), stamp.PeerId, ShapeKind.Rectangle, new(20, 20), new(80, 80),
-                0, 2, stamp, 0xFF112233) { LayerId = layerId };
+                0, 2, stamp, 0xFF112233)
+            {
+                LayerId = layerId
+            };
             var canvas = new DrawingCanvas
             {
-                Shapes = [shape], VisibleLayerIds = [layerId], Tool = DrawingTool.Select
+                Shapes = [shape],
+                VisibleLayerIds = [layerId],
+                Tool = DrawingTool.Select
             };
             int moves = 0;
             canvas.ObjectMoved += (_, _) => moves++;
