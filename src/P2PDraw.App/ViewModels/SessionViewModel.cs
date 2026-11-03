@@ -4,27 +4,22 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
-using System.Threading.Channels;
 using Avalonia.Threading;
+using P2PDraw.App.Session;
 using P2PDraw.Core.Operations;
 using P2PDraw.Core.Sync;
 using P2PDraw.Networking.Discovery;
 using P2PDraw.Networking.Protocol;
-using P2PDraw.Networking.Transport;
 
 namespace P2PDraw.App.ViewModels;
 
 public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
 {
     private readonly CancellationTokenSource lifetime = new();
-    private readonly Channel<(Guid SessionId, Operation Operation)> outgoing = Channel.CreateUnbounded<(Guid, Operation)>();
-    private readonly Task sendingTask;
-    private TcpPeer? peer;
-    private PeerDiscovery? discovery;
+    private readonly SessionConnection connection;
     private DiscoveredPeer? selectedPeer;
     private DiscoveredPeer? selectedSession;
     private bool hadConnection;
-    private Task meshTask = Task.CompletedTask;
     private string discoveryStatus = "Пошук почнеться після запуску прослуховування.";
     private string sessionId = Guid.NewGuid().ToString();
     private string localPort = "5101";
@@ -34,7 +29,6 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
     private bool isSessionLocked;
     private bool isListening;
     private bool isBusy;
-    private bool isOffline;
     private bool isDisposed;
     private bool isReplacingSession;
 
@@ -92,7 +86,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
             {
                 return "Підключено";
             }
-            if (isOffline)
+            if (connection.IsOffline)
             {
                 return "Офлайн";
             }
@@ -169,7 +163,11 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
         bool hasValidSession = Guid.TryParse(sessionId, out var parsedSession) && parsedSession != Guid.Empty;
         Guid initialSession = hasValidSession ? parsedSession : Guid.NewGuid();
         Engine = new SyncEngine(Guid.NewGuid(), initialSession);
-        sendingTask = Task.Run(SendOperationsAsync);
+        connection = new SessionConnection(() => Engine);
+        connection.Changed += OnPeerChanged;
+        connection.Error += OnPeerError;
+        connection.DiscoveryChanged += OnDiscoveryChanged;
+        connection.DiscoveryError += OnDiscoveryError;
     }
 
     public async Task CreateSessionAsync()
@@ -316,26 +314,11 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
         isReplacingSession = true;
         try
         {
-            if (discovery is not null)
-            {
-                discovery.Changed -= OnDiscoveryChanged;
-                discovery.Error -= OnDiscoveryError;
-                await discovery.DisposeAsync();
-                discovery = null;
-            }
-            if (peer is not null)
-            {
-                peer.Changed -= OnPeerChanged;
-                peer.Error -= OnPeerError;
-                await peer.DisposeAsync();
-                peer = null;
-            }
-            await meshTask;
+            await connection.StopAsync();
             Engine = replacement;
             SessionId = replacement.SessionId.ToString();
             isSessionLocked = !Engine.GetOperations().IsEmpty;
             isListening = false;
-            isOffline = false;
             hadConnection = false;
             DiscoveredPeers = [];
             AvailableSessions = [];
@@ -370,31 +353,20 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
 
         SetBusy(true);
-        var newPeer = new TcpPeer(Engine);
-        newPeer.Changed += OnPeerChanged;
-        newPeer.Error += OnPeerError;
         try
         {
-            await Task.Run(() => newPeer.Start(port), lifetime.Token);
-            if (isDisposed)
+            if (!await connection.StartListeningAsync(port) || isDisposed)
             {
-                newPeer.Changed -= OnPeerChanged;
-                newPeer.Error -= OnPeerError;
-                await newPeer.DisposeAsync();
                 return;
             }
-            peer = newPeer;
             isListening = true;
-            LocalPort = peer.Port.ToString();
+            LocalPort = connection.Port.ToString();
             Status = $"Прослуховування порту {LocalPort}.";
             RefreshConnection();
             await StartDiscoveryAsync();
         }
         catch (Exception exception) when (exception is SocketException || exception is ArgumentException || exception is OperationCanceledException)
         {
-            newPeer.Changed -= OnPeerChanged;
-            newPeer.Error -= OnPeerError;
-            await newPeer.DisposeAsync();
             Status = "Не вдалося відкрити локальний порт. Спробуйте інший або залиште 0.";
         }
         finally
@@ -405,46 +377,16 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     private async Task StartDiscoveryAsync(bool includeOtherSessions = false)
     {
-        if (discovery is not null)
-        {
-            discovery.Changed -= OnDiscoveryChanged;
-            discovery.Error -= OnDiscoveryError;
-            await discovery.DisposeAsync();
-            discovery = null;
-        }
-        var newDiscovery = new PeerDiscovery(Engine.PeerId, Engine.SessionId, includeOtherSessions);
-        newDiscovery.Changed += OnDiscoveryChanged;
-        newDiscovery.Error += OnDiscoveryError;
         try
         {
-            int tcpPort = peer?.Port ?? 0;
-            await Task.Run(() =>
+            if (await connection.StartDiscoveryAsync(includeOtherSessions))
             {
-                if (tcpPort == 0)
-                {
-                    newDiscovery.StartBrowsing();
-                }
-                else
-                {
-                    newDiscovery.Start(tcpPort);
-                }
-            }, lifetime.Token);
-            if (isDisposed)
-            {
-                newDiscovery.Changed -= OnDiscoveryChanged;
-                newDiscovery.Error -= OnDiscoveryError;
-                await newDiscovery.DisposeAsync();
-                return;
+                RefreshDiscoveredPeers();
             }
-            discovery = newDiscovery;
-            RefreshDiscoveredPeers();
         }
         catch (Exception exception) when (exception is IOException || exception is SocketException || exception is NetworkInformationException
             || exception is ArgumentException || exception is OperationCanceledException)
         {
-            newDiscovery.Changed -= OnDiscoveryChanged;
-            newDiscovery.Error -= OnDiscoveryError;
-            await newDiscovery.DisposeAsync();
             DiscoveryStatus = "Пошук недоступний. Скористайтеся ручним підключенням за IP.";
         }
     }
@@ -464,13 +406,13 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     private void RefreshDiscoveredPeers()
     {
-        if (isDisposed || discovery is null)
+        if (isDisposed || !connection.HasDiscovery)
         {
             return;
         }
         Guid? selectedId = SelectedPeer?.PeerId;
         Guid? selectedSessionId = SelectedSession?.SessionId;
-        DiscoveredPeers = discovery.GetPeers();
+        DiscoveredPeers = connection.GetDiscoveredPeers();
         Notify(nameof(DiscoveredPeers));
         SelectedPeer = DiscoveredPeers.FirstOrDefault(found => found.PeerId == selectedId);
         var sessions = new List<DiscoveredPeer>();
@@ -486,38 +428,9 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
         Notify(nameof(AvailableSessions));
         SelectedSession = AvailableSessions.FirstOrDefault(found => found.SessionId == selectedSessionId);
         DiscoveryStatus = AvailableSessions.IsEmpty ? "Пошук сесій… Можна підключитися вручну." : $"Знайдено сесій: {AvailableSessions.Length}";
-        if (isListening && !isOffline && !isBusy && meshTask.IsCompleted)
+        if (isListening && !connection.IsOffline && !isBusy)
         {
-            meshTask = ConnectMeshAsync();
-        }
-    }
-
-    private async Task ConnectMeshAsync()
-    {
-        var currentPeer = peer;
-        if (currentPeer is null)
-        {
-            return;
-        }
-        foreach (var found in DiscoveredPeers)
-        {
-            if (isDisposed || isOffline || found.SessionId != Engine.SessionId || currentPeer.IsConnected(found.PeerId))
-            {
-                continue;
-            }
-            // Only one side starts discovery connections; manual connections can use either direction.
-            if (Engine.PeerId.CompareTo(found.PeerId) > 0)
-            {
-                continue;
-            }
-            try
-            {
-                await currentPeer.ConnectAsync(found.Address, found.TcpPort, lifetime.Token);
-            }
-            catch (Exception exception) when (exception is IOException || exception is InvalidDataException || exception is SocketException
-                || exception is OperationCanceledException || exception is ArgumentException)
-            {
-            }
+            connection.ConnectMesh(DiscoveredPeers);
         }
     }
 
@@ -534,7 +447,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public async Task ConnectAsync()
     {
-        if (!CanConnect || peer is null || isDisposed)
+        if (!CanConnect || !connection.HasPeer || isDisposed)
         {
             return;
         }
@@ -545,11 +458,10 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
         }
 
         SetBusy(true);
-        isOffline = false;
         Status = "Підключення…";
         try
         {
-            await peer.ConnectAsync(RemoteAddress, port, lifetime.Token);
+            await connection.ConnectAsync(RemoteAddress, port);
             Status = "З'єднання встановлено. Зміни передаються автоматично.";
         }
         catch (Exception exception) when (exception is IOException || exception is InvalidDataException || exception is SocketException
@@ -566,19 +478,18 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public void Disconnect()
     {
-        isOffline = true;
-        peer?.DisconnectAll();
+        connection.Disconnect();
         Status = "Відключено. Малювання офлайн доступне; для синхронізації підключіться знову.";
         RefreshConnection();
     }
 
     public void ResumeNetworking()
     {
-        if (isDisposed || isOffline || peer is null)
+        if (isDisposed || connection.IsOffline || !connection.HasPeer)
         {
             return;
         }
-        peer.DisconnectAll(reconnect: true);
+        connection.ResumeNetworking();
         RefreshConnection();
     }
 
@@ -608,26 +519,8 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
 
     public void PublishOperation(Operation operation)
     {
-        outgoing.Writer.TryWrite((Engine.SessionId, operation));
+        connection.PublishOperation(operation);
         RefreshConnection();
-    }
-
-    private async Task SendOperationsAsync()
-    {
-        try
-        {
-            await foreach (var item in outgoing.Reader.ReadAllAsync(lifetime.Token))
-            {
-                var currentPeer = peer;
-                if (currentPeer is not null && item.SessionId == Engine.SessionId)
-                {
-                    await currentPeer.SendOperationAsync(item.Operation, lifetime.Token);
-                }
-            }
-        }
-        catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
-        {
-        }
     }
 
     private void OnPeerChanged() => Dispatcher.UIThread.Post(RefreshConnection);
@@ -636,7 +529,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
     {
         Dispatcher.UIThread.Post(() =>
         {
-            if (!isDisposed && !isOffline && peer?.ConnectionCount == 0)
+            if (!isDisposed && !connection.IsOffline && connection.HasPeer && connection.ConnectionCount == 0)
             {
                 Status = "З'єднання втрачено. Очікуємо повторного підключення.";
             }
@@ -650,7 +543,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
             return;
         }
         int previousCount = ConnectedPeers;
-        ConnectedPeers = peer?.ConnectionCount ?? 0;
+        ConnectedPeers = connection.ConnectionCount;
         if (ConnectedPeers > 0)
         {
             hadConnection = true;
@@ -659,7 +552,7 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
                 Status = "З'єднання встановлено. Зміни передаються автоматично.";
             }
         }
-        else if (previousCount > 0 && !isOffline)
+        else if (previousCount > 0 && !connection.IsOffline)
         {
             Status = "З'єднання втрачено. Очікуємо повторного підключення.";
         }
@@ -694,22 +587,12 @@ public sealed class SessionViewModel : INotifyPropertyChanged, IAsyncDisposable
             return;
         }
         isDisposed = true;
-        outgoing.Writer.TryComplete();
         await lifetime.CancelAsync();
-        if (discovery is not null)
-        {
-            discovery.Changed -= OnDiscoveryChanged;
-            discovery.Error -= OnDiscoveryError;
-            await discovery.DisposeAsync();
-        }
-        if (peer is not null)
-        {
-            peer.Changed -= OnPeerChanged;
-            peer.Error -= OnPeerError;
-            await peer.DisposeAsync();
-        }
-        await meshTask;
-        await sendingTask;
+        connection.Changed -= OnPeerChanged;
+        connection.Error -= OnPeerError;
+        connection.DiscoveryChanged -= OnDiscoveryChanged;
+        connection.DiscoveryError -= OnDiscoveryError;
+        await connection.DisposeAsync();
         lifetime.Dispose();
     }
 }
